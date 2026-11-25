@@ -404,9 +404,10 @@ export function InternalRosterAdmin({ adminToken }: InternalRosterAdminProps) {
                             })
                           }
                           title="استخراج البطاقة الرقمية للمنخرط"
-                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-md cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md cursor-pointer"
                         >
-                          <CreditCard className="w-4 h-4" />
+                          <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                          <span>بطاقة QR</span>
                         </button>
                         <button
                           type="button"

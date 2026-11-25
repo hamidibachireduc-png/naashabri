@@ -112,8 +112,8 @@ export function PublicMembersStatsDashboard() {
                 <p className="text-2xl font-bold font-mono-tabular text-slate-900">
                   {stats.totalMembers}
                 </p>
-                <p className="text-xs text-emerald-700 font-medium font-mono-tabular">
-                  {stats.activeMembers} منخرط نشط
+                <p className="text-xs text-slate-500 font-medium">
+                  إحصاء إجمالي مجهول الهوية (بيانات الأفراد سرية)
                 </p>
               </div>
 

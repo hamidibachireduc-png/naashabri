@@ -1328,9 +1328,7 @@ async function startServer() {
     const municipalityCounts = new Map<string, number>();
     const institutionCounts = new Map<string, number>();
 
-    let activeMembers = 0;
     for (const m of roster) {
-      if (m.status === 'نشط') activeMembers += 1;
 
       if (m.gender === 'أنثى') {
         femaleCount += 1;
@@ -1399,7 +1397,6 @@ async function startServer() {
 
     res.json({
       totalMembers: roster.length,
-      activeMembers,
       averageSeniorityYears:
         roster.length > 0 ? Math.round((totalSeniority / roster.length) * 10) / 10 : 0,
       municipalitiesCount: municipalityCounts.size,
@@ -2072,7 +2069,8 @@ async function startServer() {
     );
     if (duplicate) {
       res.status(409).json({
-        error: `يوجد طلب انخراط مسجل مسبقاً برقم المتابعة ${duplicate.trackingCode} (${duplicate.statusMessage}).`,
+        error:
+          'يوجد طلب انخراط مسجل مسبقاً بنفس رقم التعريف الوطني أو الضمان الاجتماعي. يرجى متابعة طلبكم عبر تبويب المتابعة.',
       });
       return;
     }

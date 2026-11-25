@@ -88,6 +88,7 @@ export default function App() {
   const [adminToken, setAdminToken] = useState<string>('');
   const [adminUsername, setAdminUsername] = useState<string>('');
   const [loginModalMode, setLoginModalMode] = useState<LoginModalMode | null>(null);
+  const [postLoginSection, setPostLoginSection] = useState<WorkspaceSection>('overview');
 
   const [member, setMember] = useState<MemberProfile | null>(null);
   const [memberLoaded, setMemberLoaded] = useState(false);
@@ -148,9 +149,19 @@ export default function App() {
         setInternalToken('');
         setAdminToken('');
         setAdminUsername('');
+        setMember(null);
+        setMemberLoaded(false);
+        setDependents([]);
+        setClaims([]);
+        setAuthorizations([]);
       } else {
         setMember((prev) => (internalToken ? prev : null));
         setMemberLoaded((prev) => (internalToken ? prev : false));
+        if (!internalToken) {
+          setDependents([]);
+          setClaims([]);
+          setAuthorizations([]);
+        }
       }
     });
     return () => unsub();
@@ -242,7 +253,7 @@ export default function App() {
     try {
       await signInWithPopup(auth, googleProvider);
       setLoginModalMode(null);
-      setSection('overview');
+      setSection(postLoginSection);
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : 'تعذر تسجيل الدخول في الوقت الحالي.';
@@ -263,7 +274,7 @@ export default function App() {
     setMember(loggedMember);
     setMemberLoaded(true);
     setLoginModalMode(null);
-    setSection('overview');
+    setSection(postLoginSection);
     await refreshInternalWorkspace(token);
   };
 
@@ -516,7 +527,10 @@ export default function App() {
     return (
       <>
         <PublicPortal
-          onOpenLogin={(initial) => setLoginModalMode(initial || 'internal')}
+          onOpenLogin={(initial, targetSection) => {
+            setPostLoginSection(targetSection || 'overview');
+            setLoginModalMode(initial || 'internal');
+          }}
           signingIn={signingIn}
           authError={authError}
         />
@@ -571,6 +585,14 @@ export default function App() {
   if (!member || !memberSessionMode) {
     return null;
   }
+
+  const activeOwnerKey =
+    memberSessionMode === 'internal' ? member.membershipNumber : member.uid;
+  const ownDependents = dependents.filter((d) => d.ownerId === activeOwnerKey);
+  const ownClaims = claims.filter((c) => c.ownerId === activeOwnerKey);
+  const ownAuthorizations = authorizations.filter(
+    (a) => a.ownerId === activeOwnerKey
+  );
 
   const triggerNewClaim = (careTypeToSelect?: CareType) => {
     setPreselectedCareType(careTypeToSelect);
@@ -729,9 +751,9 @@ export default function App() {
           {section === 'overview' && (
             <DashboardOverview
               member={member}
-              dependents={dependents}
-              claims={claims}
-              authorizations={authorizations}
+              dependents={ownDependents}
+              claims={ownClaims}
+              authorizations={ownAuthorizations}
               sessionMode={memberSessionMode}
               onNavigate={setSection}
               onNewClaim={() => triggerNewClaim()}
@@ -750,7 +772,7 @@ export default function App() {
                 </p>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-6">
-                <DigitalCardExtractor member={member} dependents={dependents} />
+                <DigitalCardExtractor member={member} dependents={ownDependents} />
               </div>
             </div>
           )}
@@ -764,8 +786,8 @@ export default function App() {
           {section === 'claims' && (
             <ClaimsManager
               member={member}
-              dependents={dependents}
-              claims={claims}
+              dependents={ownDependents}
+              claims={ownClaims}
               sessionMode={memberSessionMode}
               internalToken={internalToken}
               onInternalSync={() => refreshInternalWorkspace()}
@@ -777,7 +799,7 @@ export default function App() {
           {section === 'dependents' && (
             <DependentsManager
               member={member}
-              dependents={dependents}
+              dependents={ownDependents}
               sessionMode={memberSessionMode}
               internalToken={internalToken}
               onInternalSync={() => refreshInternalWorkspace()}
@@ -787,8 +809,8 @@ export default function App() {
           {section === 'authorizations' && (
             <AuthorizationsManager
               member={member}
-              dependents={dependents}
-              authorizations={authorizations}
+              dependents={ownDependents}
+              authorizations={ownAuthorizations}
               sessionMode={memberSessionMode}
               internalToken={internalToken}
               onInternalSync={() => refreshInternalWorkspace()}
@@ -820,7 +842,7 @@ export default function App() {
       {cardModalMode && (
         <DigitalCardModal
           member={member}
-          dependents={dependents}
+          dependents={ownDependents}
           mode={cardModalMode}
           onClose={() => setCardModalMode(null)}
         />

@@ -322,7 +322,7 @@ export interface AdminReportsSummary {
 
 export interface PublicMemberStats {
   totalMembers: number;
-  activeMembers: number;
+  activeMembers?: number;
   averageSeniorityYears: number;
   municipalitiesCount: number;
   institutionsCount: number;

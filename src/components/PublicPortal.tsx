@@ -21,7 +21,7 @@ import { SimulatorAndGuide } from './SimulatorAndGuide';
 import { WilayaOfficesDirectory } from './WilayaOfficesDirectory';
 
 interface PublicPortalProps {
-  onOpenLogin: (initialMode?: LoginModalMode) => void;
+  onOpenLogin: (initialMode?: LoginModalMode, targetSection?: 'overview' | 'card') => void;
   signingIn: boolean;
   authError: string;
 }
@@ -144,7 +144,7 @@ export function PublicPortal({ onOpenLogin, signingIn, authError }: PublicPortal
                   </a>
                   <button
                     type="button"
-                    onClick={() => onOpenLogin('internal')}
+                    onClick={() => onOpenLogin('internal', 'card')}
                     disabled={signingIn}
                     className="inline-flex items-center gap-2 px-5 py-3 text-sm font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 transition-colors disabled:opacity-60 cursor-pointer whitespace-nowrap"
                   >
