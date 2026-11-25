@@ -26,7 +26,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --no-frozen-lockfile
 
       - name: Build site
         run: bun run build
@@ -49,3 +49,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+```[cite: 2]
+
+بمجرد حفظ هذا التعديل ورفعه إلى فرع `main`، سيقوم `bun` بتثبيت الحزم وتحديث القفل أثناء البناء، ثم ينتقل مباشرة إلى خطوة `Build site` ورفع مجلد `./dist` إلى **GitHub Pages**[cite: 2].
