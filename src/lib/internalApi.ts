@@ -25,8 +25,16 @@ async function apiJson<T>(url: string, options: RequestInit = {}): Promise<T> {
       ...(options.headers || {}),
     },
   });
-  const data = (await res.json().catch(() => ({}))) as { error?: string } & T;
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? ((await res.json().catch(() => ({}))) as { error?: string } & T)
+    : ({} as { error?: string } & T);
   if (!res.ok) {
+    if (res.status === 404 || res.status === 405 || !contentType.includes('application/json')) {
+      throw new Error(
+        'خادم المصادقة الخلفي غير متاح على هذه الاستضافة الساكنة (مثل GitHub Pages). يرجى الدخول عبر رابط التطبيق الرئيسي الذي يشغّل الخادم (server.ts).'
+      );
+    }
     throw new Error(data.error || 'تعذر تنفيذ الطلب على الخادم.');
   }
   return data;

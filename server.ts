@@ -742,7 +742,7 @@ function verifyAdminCredentials(username: string, password: string): boolean {
       ? process.env.ADMIN_USERNAME.trim()
       : DEFAULT_ADMIN_USER;
 
-  if (!safeCompareSecret(username, expectedUser)) {
+  if (!safeCompareSecret(username.trim().toLowerCase(), expectedUser.toLowerCase())) {
     return false;
   }
 
