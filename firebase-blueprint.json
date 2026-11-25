@@ -1,0 +1,384 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "National Mutual Insurance member profile and coverage information.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "nationalId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "membershipNumber": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sector": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "city": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 30
+        },
+        "rib": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 34
+        },
+        "coveragePlan": {
+          "type": "string",
+          "enum": ["التغطية الأساسية الشاملة", "التغطية التكميلية+", "التغطية العائلية المميزة"],
+          "maxLength": 60
+        },
+        "annualCeiling": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["نشط", "قيد المراجعة", "معلق"],
+          "maxLength": 30
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "fullName",
+        "email",
+        "nationalId",
+        "membershipNumber",
+        "sector",
+        "city",
+        "phone",
+        "rib",
+        "coveragePlan",
+        "annualCeiling",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Dependent": {
+      "title": "Dependent",
+      "description": "Family beneficiary registered under a primary Mutual member.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "relationship": {
+          "type": "string",
+          "enum": ["الزوج/الزوجة", "ابن/ابنة", "أحد الوالدين"],
+          "maxLength": 40
+        },
+        "birthDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "coverageCode": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "fullName",
+        "relationship",
+        "birthDate",
+        "coverageCode",
+        "active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Claim": {
+      "title": "Claim",
+      "description": "Medical reimbursement dossier submitted by a Mutual member.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "membershipNumber": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "referenceCode": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "beneficiaryName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "beneficiaryRelation": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "careType": {
+          "type": "string",
+          "enum": [
+            "الطب العام والأدوية",
+            "طب الأسنان",
+            "البصريات والنظارات",
+            "التحاليل والأشعة",
+            "الاستشفاء والجراحة",
+            "الولادة والأمومة",
+            "العطل المرضية",
+            "منتجات صيدلانية وأجهزة اصطناعية",
+            "الجراحة العامة",
+            "جراحة وتقويم وزراعة الأسنان",
+            "التحاليل الطبية والخزعات",
+            "الأشعة الطبية الكبرى",
+            "طب العيون والبصريات",
+            "الأشعة والتحاليل التشخيصية",
+            "إعادة التأهيل الوظيفي",
+            "المنح العائلية (الزواج / الولادة / الختان)",
+            "منحة الإحالة على التقاعد",
+            "منح الأرامل والأيتام والتمدرس",
+            "مساعدة مصاريف الجنازة",
+            "الإعانات الاجتماعية (الأمراض المستعصية / الإعاقة)"
+          ],
+          "maxLength": 80
+        },
+        "providerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "careDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "totalAmount": {
+          "type": "number"
+        },
+        "estimatedReimbursement": {
+          "type": "number"
+        },
+        "approvedAmount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["قيد الدراسة", "تمت الموافقة", "تم الصرف", "وثائق ناقصة", "مرفوض"],
+          "maxLength": 30
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "reviewerNote": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "memberName",
+        "membershipNumber",
+        "referenceCode",
+        "beneficiaryName",
+        "beneficiaryRelation",
+        "careType",
+        "providerName",
+        "careDate",
+        "totalAmount",
+        "estimatedReimbursement",
+        "approvedAmount",
+        "status",
+        "notes",
+        "reviewerNote",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AuthorizationRequest": {
+      "title": "AuthorizationRequest",
+      "description": "Prior authorization (PEC) request for hospitalization or specialized care.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "referenceCode": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "beneficiaryName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "procedureType": {
+          "type": "string",
+          "enum": [
+            "استشفاء وجراحة",
+            "فحص بالرنين المغناطيسي / السكانير",
+            "تركيبات وتقويم الأسنان",
+            "علاج الأمراض المزمنة",
+            "ترويض طبي متخصص"
+          ],
+          "maxLength": 80
+        },
+        "facilityName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "expectedDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "estimatedCost": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["قيد الدراسة", "موافق عليه", "مرفوض"],
+          "maxLength": 30
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "reviewerNote": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "memberName",
+        "referenceCode",
+        "beneficiaryName",
+        "procedureType",
+        "facilityName",
+        "expectedDate",
+        "estimatedCost",
+        "status",
+        "notes",
+        "reviewerNote",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Private member profile documents keyed by Firebase Auth UID."
+    },
+    "/members/{memberId}/dependents/{dependentId}": {
+      "schema": { "$ref": "#/entities/Dependent" },
+      "description": "Family dependents belonging to a member."
+    },
+    "/claims/{claimId}": {
+      "schema": { "$ref": "#/entities/Claim" },
+      "description": "Medical reimbursement dossiers owned by members."
+    },
+    "/authorizations/{authId}": {
+      "schema": { "$ref": "#/entities/AuthorizationRequest" },
+      "description": "Prior authorization (PEC) requests owned by members."
+    }
+  }
+}

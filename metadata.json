@@ -1,0 +1,6 @@
+{
+  "name": "التعاضدية الوطنية",
+  "description": "البوابة الرقمية للتعاضدية الوطنية — متابعة ملفات المرض والتعويضات الطبية، ذوي الحقوق، طلبات التكفل المسبق، ودليل المتعاقدين.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,13 @@
+{
+  "fileName": "mutnatec-database.xlsx",
+  "lastSyncedAt": "2026-11-22T18:13:21.472Z",
+  "fileSizeBytes": 23248,
+  "syncedCounts": {
+    "roster": 10,
+    "claims": 5,
+    "authorizations": 0,
+    "enrollments": 0,
+    "dependents": 2,
+    "wilayasActive": 47
+  }
+}

@@ -1,0 +1,306 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'bachirofsat@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidMember(data, memberId) {
+      return data.keys().hasAll([
+        'uid', 'fullName', 'email', 'nationalId', 'membershipNumber',
+        'sector', 'city', 'phone', 'rib', 'coveragePlan',
+        'annualCeiling', 'status', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'fullName', 'email', 'nationalId', 'membershipNumber',
+        'sector', 'city', 'phone', 'rib', 'coveragePlan',
+        'annualCeiling', 'status', 'createdAt', 'updatedAt'
+      ])
+      && data.uid is string && data.uid == memberId && isValidId(data.uid)
+      && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+      && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+      && data.nationalId is string && data.nationalId.size() >= 3 && data.nationalId.size() <= 32 && data.nationalId.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.membershipNumber is string && data.membershipNumber.size() >= 4 && data.membershipNumber.size() <= 32 && data.membershipNumber.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.sector is string && data.sector.size() >= 2 && data.sector.size() <= 100
+      && data.city is string && data.city.size() >= 2 && data.city.size() <= 80
+      && data.phone is string && data.phone.size() >= 6 && data.phone.size() <= 30
+      && data.rib is string && data.rib.size() >= 10 && data.rib.size() <= 34
+      && data.coveragePlan is string && data.coveragePlan in ['التغطية الأساسية الشاملة', 'التغطية التكميلية+', 'التغطية العائلية المميزة']
+      && data.annualCeiling is number && data.annualCeiling >= 10000 && data.annualCeiling <= 2000000
+      && data.status is string && data.status in ['نشط', 'قيد المراجعة', 'معلق']
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidDependent(data, memberId) {
+      return data.keys().hasAll([
+        'ownerId', 'fullName', 'relationship', 'birthDate', 'coverageCode', 'active', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'fullName', 'relationship', 'birthDate', 'coverageCode', 'active', 'createdAt', 'updatedAt'
+      ])
+      && data.ownerId is string && data.ownerId == memberId && isValidId(data.ownerId)
+      && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+      && data.relationship is string && data.relationship in ['الزوج/الزوجة', 'ابن/ابنة', 'أحد الوالدين']
+      && data.birthDate is string && data.birthDate.size() == 10 && data.birthDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      && data.coverageCode is string && data.coverageCode.size() >= 4 && data.coverageCode.size() <= 32 && data.coverageCode.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.active is bool
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidClaim(data) {
+      return data.keys().hasAll([
+        'ownerId', 'memberName', 'membershipNumber', 'referenceCode',
+        'beneficiaryName', 'beneficiaryRelation', 'careType', 'providerName',
+        'careDate', 'totalAmount', 'estimatedReimbursement', 'approvedAmount',
+        'status', 'notes', 'reviewerNote', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'memberName', 'membershipNumber', 'referenceCode',
+        'beneficiaryName', 'beneficiaryRelation', 'careType', 'providerName',
+        'careDate', 'totalAmount', 'estimatedReimbursement', 'approvedAmount',
+        'status', 'notes', 'reviewerNote', 'createdAt', 'updatedAt'
+      ])
+      && data.ownerId is string && isValidId(data.ownerId)
+      && data.memberName is string && data.memberName.size() >= 2 && data.memberName.size() <= 120
+      && data.membershipNumber is string && data.membershipNumber.size() >= 4 && data.membershipNumber.size() <= 32 && data.membershipNumber.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.referenceCode is string && data.referenceCode.size() >= 4 && data.referenceCode.size() <= 32 && data.referenceCode.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.beneficiaryName is string && data.beneficiaryName.size() >= 2 && data.beneficiaryName.size() <= 120
+      && data.beneficiaryRelation is string && data.beneficiaryRelation.size() >= 2 && data.beneficiaryRelation.size() <= 40
+      && data.careType is string && data.careType in [
+        'الطب العام والأدوية', 'طب الأسنان', 'البصريات والنظارات',
+        'التحاليل والأشعة', 'الاستشفاء والجراحة', 'الولادة والأمومة',
+        'العطل المرضية', 'منتجات صيدلانية وأجهزة اصطناعية', 'الجراحة العامة',
+        'جراحة وتقويم وزراعة الأسنان', 'التحاليل الطبية والخزعات', 'الأشعة الطبية الكبرى',
+        'طب العيون والبصريات', 'الأشعة والتحاليل التشخيصية', 'إعادة التأهيل الوظيفي',
+        'المنح العائلية (الزواج / الولادة / الختان)', 'منحة الإحالة على التقاعد',
+        'منح الأرامل والأيتام والتمدرس', 'مساعدة مصاريف الجنازة',
+        'الإعانات الاجتماعية (الأمراض المستعصية / الإعاقة)'
+      ]
+      && data.providerName is string && data.providerName.size() >= 2 && data.providerName.size() <= 140
+      && data.careDate is string && data.careDate.size() == 10 && data.careDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      && data.totalAmount is number && data.totalAmount > 0 && data.totalAmount <= 5000000
+      && data.estimatedReimbursement is number && data.estimatedReimbursement >= 0 && data.estimatedReimbursement <= 5000000
+      && data.approvedAmount is number && data.approvedAmount >= 0 && data.approvedAmount <= 5000000
+      && data.status is string && data.status in ['قيد الدراسة', 'تمت الموافقة', 'تم الصرف', 'وثائق ناقصة', 'مرفوض']
+      && data.notes is string && data.notes.size() <= 600
+      && data.reviewerNote is string && data.reviewerNote.size() <= 400
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    function isValidAuthorization(data) {
+      return data.keys().hasAll([
+        'ownerId', 'memberName', 'referenceCode', 'beneficiaryName',
+        'procedureType', 'facilityName', 'expectedDate', 'estimatedCost',
+        'status', 'notes', 'reviewerNote', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'ownerId', 'memberName', 'referenceCode', 'beneficiaryName',
+        'procedureType', 'facilityName', 'expectedDate', 'estimatedCost',
+        'status', 'notes', 'reviewerNote', 'createdAt', 'updatedAt'
+      ])
+      && data.ownerId is string && isValidId(data.ownerId)
+      && data.memberName is string && data.memberName.size() >= 2 && data.memberName.size() <= 120
+      && data.referenceCode is string && data.referenceCode.size() >= 4 && data.referenceCode.size() <= 32 && data.referenceCode.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.beneficiaryName is string && data.beneficiaryName.size() >= 2 && data.beneficiaryName.size() <= 120
+      && data.procedureType is string && data.procedureType in [
+        'استشفاء وجراحة', 'فحص بالرنين المغناطيسي / السكانير',
+        'تركيبات وتقويم الأسنان', 'علاج الأمراض المزمنة', 'ترويض طبي متخصص'
+      ]
+      && data.facilityName is string && data.facilityName.size() >= 2 && data.facilityName.size() <= 140
+      && data.expectedDate is string && data.expectedDate.size() == 10 && data.expectedDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      && data.estimatedCost is number && data.estimatedCost > 0 && data.estimatedCost <= 5000000
+      && data.status is string && data.status in ['قيد الدراسة', 'موافق عليه', 'مرفوض']
+      && data.notes is string && data.notes.size() <= 600
+      && data.reviewerNote is string && data.reviewerNote.size() <= 400
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && isOwner(adminId);
+      allow list, create, update, delete: if false;
+    }
+
+    match /members/{memberId} {
+      allow get: if isValidId(memberId) && (isOwner(memberId) || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn()
+        && isValidId(memberId)
+        && isOwner(memberId)
+        && isValidMember(incoming(), memberId)
+        && incoming().status == 'نشط'
+        && incoming().annualCeiling == 250000
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(memberId)
+        && isValidMember(incoming(), memberId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(memberId)
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'fullName', 'nationalId', 'sector', 'city', 'phone', 'rib', 'coveragePlan', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if false;
+
+      // Master Gate Subcollection: Dependents
+      match /dependents/{dependentId} {
+        allow get: if isValidId(memberId) && isValidId(dependentId) && (isOwner(memberId) || isAdmin());
+        allow list: if isOwner(memberId) || isAdmin();
+
+        allow create: if isSignedIn()
+          && isValidId(memberId)
+          && isValidId(dependentId)
+          && isOwner(memberId)
+          && isValidDependent(incoming(), memberId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/members/$(memberId));
+
+        allow update: if isSignedIn()
+          && isValidId(memberId)
+          && isValidId(dependentId)
+          && isValidDependent(incoming(), memberId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/members/$(memberId))
+          && (
+            isAdmin() ||
+            (
+              isOwner(memberId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'fullName', 'relationship', 'birthDate', 'active', 'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isValidId(memberId) && isValidId(dependentId) && (isOwner(memberId) || isAdmin());
+      }
+    }
+
+    match /claims/{claimId} {
+      allow get: if isValidId(claimId) && isSignedIn() && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn()
+        && isValidId(claimId)
+        && isValidClaim(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'قيد الدراسة'
+        && incoming().approvedAmount == 0
+        && incoming().reviewerNote == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/members/$(request.auth.uid));
+
+      allow update: if isSignedIn()
+        && isValidId(claimId)
+        && isValidClaim(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().referenceCode == existing().referenceCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid
+            && existing().status in ['قيد الدراسة', 'وثائق ناقصة']
+            && incoming().status == 'قيد الدراسة'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'providerName', 'careDate', 'totalAmount', 'estimatedReimbursement', 'notes', 'status', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(claimId) && isSignedIn() && (
+        isAdmin() ||
+        (existing().ownerId == request.auth.uid && existing().status == 'قيد الدراسة')
+      );
+    }
+
+    match /authorizations/{authId} {
+      allow get: if isValidId(authId) && isSignedIn() && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn()
+        && isValidId(authId)
+        && isValidAuthorization(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'قيد الدراسة'
+        && incoming().reviewerNote == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/members/$(request.auth.uid));
+
+      allow update: if isSignedIn()
+        && isValidId(authId)
+        && isValidAuthorization(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().referenceCode == existing().referenceCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid
+            && existing().status == 'قيد الدراسة'
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'facilityName', 'expectedDate', 'estimatedCost', 'notes', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(authId) && isSignedIn() && (
+        isAdmin() ||
+        (existing().ownerId == request.auth.uid && existing().status == 'قيد الدراسة')
+      );
+    }
+  }
+}
