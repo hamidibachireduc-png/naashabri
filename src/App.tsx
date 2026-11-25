@@ -51,6 +51,7 @@ import { AdminReviewPanel } from './components/AdminReviewPanel';
 import { AuthorizationsManager } from './components/AuthorizationsManager';
 import { BenefitsCatalog } from './components/BenefitsCatalog';
 import { BrandImage } from './components/BrandImage';
+import { CardQrVerifyPage } from './components/CardQrVerifyPage';
 import { ClaimsManager } from './components/ClaimsManager';
 import { ContactSection } from './components/ContactSection';
 import { DashboardOverview, type WorkspaceSection } from './components/DashboardOverview';
@@ -66,6 +67,17 @@ import { SimulatorAndGuide } from './components/SimulatorAndGuide';
 import { WilayaOfficesDirectory } from './components/WilayaOfficesDirectory';
 
 export default function App() {
+  const [verifyCardParams, setVerifyCardParams] = useState<{
+    m: string;
+    sig: string;
+  } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const params = new URLSearchParams(window.location.search);
+    const m = params.get('verifyCard')?.trim() || '';
+    const sig = params.get('sig')?.trim() || '';
+    return m && sig ? { m, sig } : null;
+  });
+
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -312,6 +324,21 @@ export default function App() {
   const sectionTitle =
     navItems.find((item) => item.id === section)?.label ||
     (isAdminSession ? 'إدارة الملف والمراقبة' : 'لوحة القيادة');
+
+  if (verifyCardParams) {
+    return (
+      <CardQrVerifyPage
+        membershipNumber={verifyCardParams.m}
+        sig={verifyCardParams.sig}
+        onBackToPortal={() => {
+          setVerifyCardParams(null);
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        }}
+      />
+    );
+  }
 
   if (!authReady) {
     return (

@@ -9,8 +9,8 @@ import {
   UserPlus,
 } from 'lucide-react';
 import {
-  ALL_58_WILAYAS,
   COVERAGE_PLANS,
+  ENROLLMENT_WILAYA_OPTIONS,
   SAFE_ID_REGEX,
   SECTORS_LIST,
 } from '../data/mutualCatalog';
@@ -176,7 +176,7 @@ export function IndividualEnrollmentSection() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <p className="text-xs font-medium text-slate-500">
-              التسجيل الرقمي للمنخرطين الجدد — عمال التربية والثقافة بالجزائر
+              التسجيل الرقمي للمنخرطين الجدد عبر 69 ولاية بالإضافة إلى الجزائر وسط وغرب وشرق
             </p>
             <h2
               id="enrollment-heading"
@@ -431,16 +431,16 @@ export function IndividualEnrollmentSection() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      الولاية *
+                      الولاية / المقاطعة (69 ولاية + الجزائر وسط/غرب/شرق) *
                     </label>
                     <select
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
                     >
-                      {ALL_58_WILAYAS.map((w) => (
-                        <option key={w} value={w}>
-                          {w}
+                      {ENROLLMENT_WILAYA_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
                         </option>
                       ))}
                     </select>

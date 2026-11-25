@@ -12,9 +12,18 @@ export interface MemberProfile {
   fullName: string;
   email: string;
   nationalId: string;
+  socialSecurityNumber?: string;
+  birthDate?: string;
+  birthPlace?: string;
+  jobTitle?: string;
   membershipNumber: string;
   sector: string;
   city: string;
+  municipality?: string;
+  institution?: string;
+  memberRole?: string;
+  enrollmentYear?: string;
+  cardQrSig?: string;
   phone: string;
   rib: string;
   coveragePlan: CoveragePlan;
@@ -32,6 +41,13 @@ export interface InternalRosterMember {
   fullName: string;
   email: string;
   nationalId: string;
+  socialSecurityNumber?: string;
+  birthDate?: string;
+  birthPlace?: string;
+  jobTitle?: string;
+  memberRole?: string;
+  enrollmentYear?: string;
+  cardQrSig?: string;
   gender?: MemberGender;
   seniorityYears?: number;
   sector: string;
@@ -314,4 +330,19 @@ export interface PublicMemberStats {
   bySeniority: Array<{ name: string; count: number }>;
   byMunicipality: Array<{ name: string; count: number }>;
   byInstitution: Array<{ name: string; count: number }>;
+}
+
+export interface CardVerificationResult {
+  valid: boolean;
+  membershipNumber: string;
+  fullName: string;
+  city: string;
+  municipality: string;
+  institution: string;
+  sector: string;
+  coveragePlan: CoveragePlan;
+  status: MemberStatus;
+  enrollmentYear: string;
+  accreditationNumber: string;
+  verifiedAt: string;
 }

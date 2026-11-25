@@ -2,6 +2,7 @@ import type {
   AdminReportsSummary,
   AuthorizationRequest,
   AuthorizationStatus,
+  CardVerificationResult,
   ClaimStatus,
   CoveragePlan,
   Dependent,
@@ -429,4 +430,15 @@ export async function importAdminExcelDatabase(
 
 export async function fetchPublicMemberStats(): Promise<PublicMemberStats> {
   return apiJson('/api/public/member-stats');
+}
+
+export async function verifyElectronicCardQr(
+  membershipNumber: string,
+  sig: string
+): Promise<CardVerificationResult> {
+  const params = new URLSearchParams({
+    m: membershipNumber,
+    sig,
+  });
+  return apiJson(`/api/public/verify-card?${params.toString()}`);
 }

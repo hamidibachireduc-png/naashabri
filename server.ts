@@ -84,6 +84,12 @@ interface InternalRosterRecord {
   fullName: string;
   email: string;
   nationalId: string;
+  socialSecurityNumber?: string;
+  birthDate?: string;
+  birthPlace?: string;
+  jobTitle?: string;
+  memberRole?: string;
+  enrollmentYear?: string;
   gender?: 'ذكر' | 'أنثى';
   seniorityYears?: number;
   sector: string;
@@ -448,12 +454,32 @@ const OFFICIAL_58_WILAYAS = [
   'جانت',
   'المغير',
   'المنيعة',
+  'أفلو',
+  'بريكة',
+  'القنطرة',
+  'بئر العاتر',
+  'العريشة',
+  'قصر الشلالة',
+  'عين وسارة',
+  'مسعد',
+  'قصر البخاري',
+  'بوسعادة',
+  'الأبيض سيدي الشيخ',
 ];
+
+const ALGIERS_SECTOR_OFFICES: Record<string, string> = {
+  '70': 'الجزائر وسط',
+  '71': 'الجزائر غرب',
+  '72': 'الجزائر شرق',
+};
 
 function buildDefaultWilayaOffices(): WilayaOfficeRecord[] {
   return Array.from({ length: 96 }, (_, index) => {
     const code = String(index + 1).padStart(2, '0');
-    const wilayaName = OFFICIAL_58_WILAYAS[index] ?? `المقاطعة / الفرع الولائي ${code}`;
+    const wilayaName =
+      OFFICIAL_58_WILAYAS[index] ??
+      ALGIERS_SECTOR_OFFICES[code] ??
+      `المقاطعة / الفرع الولائي ${code}`;
     const seeded = SEEDED_PAYMENT_CENTERS[code];
     return {
       code,
@@ -577,7 +603,10 @@ function readWilayaOffices(): WilayaOfficeRecord[] {
       return {
         code: base.code,
         wilayaName:
-          typeof saved.wilayaName === 'string' && saved.wilayaName.trim()
+          typeof saved.wilayaName === 'string' &&
+          saved.wilayaName.trim() &&
+          (!saved.wilayaName.startsWith('المقاطعة / الفرع الولائي') ||
+            base.wilayaName.startsWith('المقاطعة / الفرع الولائي'))
             ? saved.wilayaName.trim().slice(0, 80)
             : base.wilayaName,
         officeName:
@@ -727,15 +756,63 @@ function verifyAdminCredentials(username: string, password: string): boolean {
   return crypto.timingSafeEqual(derived, expectedBuf);
 }
 
+let cachedCardVerifyKey = '';
+
+function getCardVerifyKey(): string {
+  if (process.env.CARD_VERIFY_SECRET && process.env.CARD_VERIFY_SECRET.length >= 16) {
+    return process.env.CARD_VERIFY_SECRET;
+  }
+  if (cachedCardVerifyKey) return cachedCardVerifyKey;
+  ensureDataFiles();
+  const keyFile = path.join(DATA_DIR, 'card-verify.key');
+  try {
+    if (fs.existsSync(keyFile)) {
+      const saved = fs.readFileSync(keyFile, 'utf8').trim();
+      if (saved.length >= 32) {
+        cachedCardVerifyKey = saved;
+        return saved;
+      }
+    }
+  } catch {
+    // generate fallback below
+  }
+  const generated = crypto.randomBytes(32).toString('hex');
+  try {
+    fs.writeFileSync(keyFile, generated, 'utf8');
+  } catch {
+    // ignore write failures in restricted filesystems
+  }
+  cachedCardVerifyKey = generated;
+  return generated;
+}
+
+function computeCardQrSig(membershipNumber: string): string {
+  return crypto
+    .createHmac('sha256', getCardVerifyKey())
+    .update(`MUTNATEC-CARD:${membershipNumber.toUpperCase()}`)
+    .digest('hex')
+    .slice(0, 16)
+    .toUpperCase();
+}
+
 function sanitizeMemberForClient(record: InternalRosterRecord) {
   return {
     uid: record.membershipNumber,
     fullName: record.fullName,
     email: record.email,
     nationalId: record.nationalId,
+    socialSecurityNumber: record.socialSecurityNumber || record.nationalId,
+    birthDate: record.birthDate || '',
+    birthPlace: record.birthPlace || record.city,
+    jobTitle: record.jobTitle || record.sector,
     membershipNumber: record.membershipNumber,
     sector: record.sector,
     city: record.city,
+    municipality: record.municipality || record.city,
+    institution: record.institution || record.sector,
+    memberRole: record.memberRole || (record.status === 'نشط' ? 'منخرط نشط' : record.status),
+    enrollmentYear: record.enrollmentYear || '2026',
+    cardQrSig: computeCardQrSig(record.membershipNumber),
     phone: record.phone,
     rib: record.rib,
     coveragePlan: record.coveragePlan,
@@ -1334,9 +1411,56 @@ async function startServer() {
     });
   });
 
+  // --- Public Electronic QR Card Verification (Zero sensitive PII) ---
+  app.get('/api/public/verify-card', (req: Request, res: Response) => {
+    const m = typeof req.query.m === 'string' ? req.query.m.trim() : '';
+    const sig = typeof req.query.sig === 'string' ? req.query.sig.trim().toUpperCase() : '';
+
+    if (!m || !SAFE_ID_REGEX.test(m) || !/^[A-F0-9]{16}$/.test(sig)) {
+      res.status(400).json({ error: 'بيانات رمز التحقق الإلكتروني QR غير صالحة.' });
+      return;
+    }
+
+    const roster = readRoster();
+    const matched = roster.find(
+      (item) => item.membershipNumber.toUpperCase() === m.toUpperCase()
+    );
+    if (!matched) {
+      res.status(404).json({ error: 'بطاقة الانخراط غير مسجلة في قاعدة البيانات المركزية.' });
+      return;
+    }
+
+    const expectedSig = computeCardQrSig(matched.membershipNumber);
+    if (!safeCompareSecret(sig, expectedSig)) {
+      res.status(403).json({ error: 'التوقيع الرقمي لرمز QR غير مطابق.' });
+      return;
+    }
+
+    res.json({
+      valid: matched.status === 'نشط',
+      membershipNumber: matched.membershipNumber,
+      fullName: matched.fullName,
+      city: matched.city,
+      municipality: matched.municipality || matched.city,
+      institution: matched.institution || matched.sector,
+      sector: matched.sector,
+      coveragePlan: matched.coveragePlan,
+      status: matched.status,
+      enrollmentYear: matched.enrollmentYear || '2026',
+      accreditationNumber: '96 / 04',
+      verifiedAt: new Date().toISOString(),
+    });
+  });
+
   // --- Admin Internal Roster & Records Routes ---
+  const attachRosterQrSig = (list: InternalRosterRecord[]) =>
+    list.map((item) => ({
+      ...item,
+      cardQrSig: computeCardQrSig(item.membershipNumber),
+    }));
+
   app.get('/api/admin/roster', requireAdminSession, (_req: Request, res: Response) => {
-    res.json({ roster: readRoster() });
+    res.json({ roster: attachRosterQrSig(readRoster()) });
   });
 
   app.post('/api/admin/roster', requireAdminSession, (req: Request, res: Response) => {
@@ -1347,6 +1471,16 @@ async function startServer() {
     const fullName = typeof body.fullName === 'string' ? body.fullName.trim().slice(0, 120) : '';
     const email = typeof body.email === 'string' ? body.email.trim().slice(0, 160) : 'member@mutnatec.dz';
     const nationalId = typeof body.nationalId === 'string' ? body.nationalId.trim().slice(0, 32) : '';
+    const socialSecurityNumber =
+      typeof body.socialSecurityNumber === 'string' ? body.socialSecurityNumber.trim().slice(0, 32) : '';
+    const birthDate = typeof body.birthDate === 'string' ? body.birthDate.trim().slice(0, 20) : '';
+    const birthPlace = typeof body.birthPlace === 'string' ? body.birthPlace.trim().slice(0, 80) : '';
+    const jobTitle = typeof body.jobTitle === 'string' ? body.jobTitle.trim().slice(0, 100) : '';
+    const memberRole = typeof body.memberRole === 'string' ? body.memberRole.trim().slice(0, 60) : '';
+    const enrollmentYear =
+      typeof body.enrollmentYear === 'string' && /^\d{4}$/.test(body.enrollmentYear.trim())
+        ? body.enrollmentYear.trim()
+        : String(new Date().getFullYear());
     const gender: 'ذكر' | 'أنثى' = body.gender === 'أنثى' ? 'أنثى' : 'ذكر';
     const seniorityYears = Math.max(0, Math.min(50, Math.round(Number(body.seniorityYears) || 0)));
     const sector = typeof body.sector === 'string' ? body.sector.trim().slice(0, 100) : '';
@@ -1388,6 +1522,12 @@ async function startServer() {
       fullName,
       email,
       nationalId,
+      socialSecurityNumber: socialSecurityNumber || undefined,
+      birthDate: birthDate || undefined,
+      birthPlace: birthPlace || undefined,
+      jobTitle: jobTitle || undefined,
+      memberRole: memberRole || undefined,
+      enrollmentYear,
       gender,
       seniorityYears,
       sector: finalSector,
@@ -1403,7 +1543,10 @@ async function startServer() {
 
     roster.unshift(newRecord);
     writeRoster(roster);
-    res.status(201).json({ member: newRecord, roster });
+    res.status(201).json({
+      member: { ...newRecord, cardQrSig: computeCardQrSig(newRecord.membershipNumber) },
+      roster: attachRosterQrSig(roster),
+    });
   });
 
   app.patch(
@@ -1440,6 +1583,30 @@ async function startServer() {
           typeof body.accessCode === 'string' && body.accessCode.trim().length >= 4
             ? body.accessCode.trim().slice(0, 64)
             : existing.accessCode,
+        socialSecurityNumber:
+          typeof body.socialSecurityNumber === 'string' && body.socialSecurityNumber.trim().length >= 3
+            ? body.socialSecurityNumber.trim().slice(0, 32)
+            : existing.socialSecurityNumber,
+        birthDate:
+          typeof body.birthDate === 'string' && body.birthDate.trim().length >= 4
+            ? body.birthDate.trim().slice(0, 20)
+            : existing.birthDate,
+        birthPlace:
+          typeof body.birthPlace === 'string' && body.birthPlace.trim().length >= 2
+            ? body.birthPlace.trim().slice(0, 80)
+            : existing.birthPlace,
+        jobTitle:
+          typeof body.jobTitle === 'string' && body.jobTitle.trim().length >= 2
+            ? body.jobTitle.trim().slice(0, 100)
+            : existing.jobTitle,
+        memberRole:
+          typeof body.memberRole === 'string' && body.memberRole.trim().length >= 2
+            ? body.memberRole.trim().slice(0, 60)
+            : existing.memberRole,
+        enrollmentYear:
+          typeof body.enrollmentYear === 'string' && /^\d{4}$/.test(body.enrollmentYear.trim())
+            ? body.enrollmentYear.trim()
+            : existing.enrollmentYear,
         gender:
           body.gender === 'أنثى' || body.gender === 'ذكر'
             ? body.gender
@@ -1480,7 +1647,10 @@ async function startServer() {
         status: nextStatus,
       };
       writeRoster(roster);
-      res.json({ member: roster[idx], roster });
+      res.json({
+        member: { ...roster[idx], cardQrSig: computeCardQrSig(roster[idx].membershipNumber) },
+        roster: attachRosterQrSig(roster),
+      });
     }
   );
 
@@ -2068,6 +2238,12 @@ async function startServer() {
           fullName: existing.fullName,
           email: existing.email,
           nationalId: existing.nationalId,
+          socialSecurityNumber: existing.socialSecurityNumber || existing.nationalId,
+          birthDate: existing.birthDate,
+          birthPlace: existing.city,
+          jobTitle: existing.sector,
+          memberRole: 'منخرط نشط',
+          enrollmentYear: existing.createdAt.slice(0, 4) || '2026',
           gender: existing.gender || 'ذكر',
           seniorityYears: existing.seniorityYears ?? 1,
           sector: existing.sector,

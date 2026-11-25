@@ -41,7 +41,7 @@ export function getSafeExternalUrl(rawUrl: string): string | null {
   }
 }
 
-const OFFICIAL_58_WILAYAS = [
+const OFFICIAL_69_WILAYAS = [
   'أدرار',
   'الشلف',
   'الأغواط',
@@ -100,9 +100,34 @@ const OFFICIAL_58_WILAYAS = [
   'جانت',
   'المغير',
   'المنيعة',
+  'أفلو',
+  'بريكة',
+  'القنطرة',
+  'بئر العاتر',
+  'العريشة',
+  'قصر الشلالة',
+  'عين وسارة',
+  'مسعد',
+  'قصر البخاري',
+  'بوسعادة',
+  'الأبيض سيدي الشيخ',
 ];
 
-export const ALL_58_WILAYAS: string[] = OFFICIAL_58_WILAYAS;
+export const ALL_69_WILAYAS: string[] = OFFICIAL_69_WILAYAS;
+
+export const ENROLLMENT_WILAYA_OPTIONS: Array<{ value: string; label: string }> = (() => {
+  const opts: Array<{ value: string; label: string }> = [];
+  OFFICIAL_69_WILAYAS.forEach((name, idx) => {
+    const code = String(idx + 1).padStart(2, '0');
+    opts.push({ value: name, label: `${code} - ${name}` });
+    if (code === '16') {
+      opts.push({ value: 'الجزائر وسط', label: '16أ - الجزائر وسط' });
+      opts.push({ value: 'الجزائر غرب', label: '16ب - الجزائر غرب' });
+      opts.push({ value: 'الجزائر شرق', label: '16ج - الجزائر شرق' });
+    }
+  });
+  return opts;
+})();
 
 export const PAYMENT_CENTERS_GALLERY = [
   {
@@ -122,12 +147,21 @@ export const PAYMENT_CENTERS_GALLERY = [
   },
 ] as const;
 
+const ALGIERS_SECTOR_OFFICE_NAMES: Record<string, string> = {
+  '70': 'الجزائر وسط',
+  '71': 'الجزائر غرب',
+  '72': 'الجزائر شرق',
+};
+
 export const WILAYA_DEFAULT_LABELS: Array<{ code: string; name: string }> = Array.from(
   { length: 96 },
   (_, index) => {
     const num = index + 1;
     const code = String(num).padStart(2, '0');
-    const name = OFFICIAL_58_WILAYAS[index] ?? `المقاطعة / الفرع الولائي ${code}`;
+    const name =
+      OFFICIAL_69_WILAYAS[index] ??
+      ALGIERS_SECTOR_OFFICE_NAMES[code] ??
+      `المقاطعة / الفرع الولائي ${code}`;
     return { code, name };
   }
 );
@@ -172,18 +206,15 @@ export const SECTORS_LIST: string[] = [
   'المتقاعدون وذوو الحقوق',
 ];
 
-export const CITIES_LIST: string[] = [
-  'الجزائر العاصمة',
-  'وهران',
-  'قسنطينة',
-  'عنابة',
-  'سطيف',
-  'تيزي وزو',
-  'باتنة',
-  'البليدة',
-  'تلمسان',
-  'ورقلة',
-];
+export const CITIES_LIST: string[] = Array.from(
+  new Set([
+    'الجزائر العاصمة',
+    'الجزائر وسط',
+    'الجزائر غرب',
+    'الجزائر شرق',
+    ...OFFICIAL_69_WILAYAS,
+  ])
+);
 
 export const BASE_FILE_DOCUMENTS: string[] = [
   'كشف حساب التعويضات للضمان الاجتماعي (CNAS).',
