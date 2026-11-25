@@ -49,6 +49,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-```[cite: 2]
-
-بمجرد حفظ هذا التعديل ورفعه إلى فرع `main`، سيقوم `bun` بتثبيت الحزم وتحديث القفل أثناء البناء، ثم ينتقل مباشرة إلى خطوة `Build site` ورفع مجلد `./dist` إلى **GitHub Pages**[cite: 2].
