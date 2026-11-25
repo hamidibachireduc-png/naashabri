@@ -5,10 +5,14 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import {
+  buildWilayaMembersWorkbookBuffer,
   computeReportsData,
   getExcelPaths,
+  getNationalWarehousePaths,
   parseExcelImportWorkbook,
+  parseWarehouseOrWilayaMembersExcel,
   readExcelSyncMeta,
+  readNationalWarehouseMeta,
   syncExcelDatabaseWorkbook,
   type DatabaseSnapshot,
 } from './server/excelDatabase.ts';
@@ -102,6 +106,7 @@ interface InternalRosterRecord {
   coveragePlan: string;
   annualCeiling: number;
   status: string;
+  notes?: string;
 }
 
 interface InternalDependentRecord {
@@ -890,6 +895,74 @@ function writeEnrollments(list: IndividualEnrollmentRecord[]) {
   void triggerExcelSync();
 }
 
+function isMemberOwnedByWilayaStrict(
+  city: string,
+  wilayaCode: string,
+  wilayaName: string,
+  offices: WilayaOfficeRecord[]
+): boolean {
+  const clean = (city || '').trim();
+  if (!clean) return false;
+  if (clean === wilayaName) return true;
+  if (clean === 'الجزائر العاصمة') return wilayaCode === '16';
+  const exactOther = offices.find((o) => o.wilayaName === clean);
+  if (exactOther) return exactOther.code === wilayaCode;
+  return isCityInWilayaScope(clean, wilayaCode, wilayaName);
+}
+
+function buildWilayaHeadWorkspacePayload(code: string) {
+  const offices = readWilayaOffices();
+  const heads = readWilayaHeads();
+  const office = offices.find((o) => o.code === code)!;
+  const head = heads.find((h) => h.wilayaCode === code)!;
+
+  const roster = readRoster();
+  const scopedMembers = roster.filter((m) =>
+    isCityInWilayaScope(m.city, office.code, office.wilayaName)
+  );
+  const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
+  const store = readRecords();
+  const scopedClaims = store.claims.filter((c) => memberNums.has(c.ownerId));
+  const scopedEnrollments = readEnrollments().filter((e) =>
+    isCityInWilayaScope(e.city, office.code, office.wilayaName)
+  );
+  const warehouseMeta = readNationalWarehouseMeta(DATA_DIR);
+
+  const safeMembers = scopedMembers.map(({ accessCode: _omit, ...rest }) => rest);
+
+  return {
+    account: sanitizeWilayaHeadForClient(head, office),
+    office,
+    stats: {
+      membersCount: safeMembers.length,
+      activeMembersCount: safeMembers.filter((m) => m.status === 'نشط').length,
+      claimsCount: scopedClaims.length,
+      pendingClaimsCount: scopedClaims.filter(
+        (c) => c.status === 'قيد الدراسة' || c.status === 'وثائق ناقصة'
+      ).length,
+      totalApprovedAmount: scopedClaims.reduce(
+        (sum, c) => sum + (Number(c.approvedAmount) || 0),
+        0
+      ),
+      enrollmentsCount: scopedEnrollments.length,
+      pendingEnrollmentsCount: scopedEnrollments.filter(
+        (e) => e.status === 'جاري التدقيق والموافقة'
+      ).length,
+    },
+    warehouseSync: {
+      fileName: warehouseMeta.fileName,
+      lastSyncedAt: warehouseMeta.lastSyncedAt,
+      nationalTotalMembers: warehouseMeta.totalMembers || roster.length,
+      wilayaSyncedMembers:
+        warehouseMeta.byWilaya.find((b) => b.code === code)?.membersCount ??
+        safeMembers.length,
+    },
+    members: safeMembers,
+    claims: scopedClaims,
+    enrollments: scopedEnrollments,
+  };
+}
+
 function getDatabaseSnapshot(): DatabaseSnapshot {
   const records = readRecords();
   return {
@@ -899,6 +972,15 @@ function getDatabaseSnapshot(): DatabaseSnapshot {
     authorizations: records.authorizations,
     enrollments: readEnrollments(),
     wilayas: readWilayaOffices(),
+    wilayaHeads: readWilayaHeads().map((h) => ({
+      wilayaCode: h.wilayaCode,
+      username: h.username,
+      fullName: h.fullName,
+      title: h.title,
+      phone: h.phone,
+      email: h.email,
+      status: h.status,
+    })),
   };
 }
 
@@ -2144,48 +2226,7 @@ async function startServer() {
     '/api/wilaya-head/me',
     requireWilayaHeadSession,
     (req: AuthedWilayaHeadRequest, res: Response) => {
-      const code = req.wilayaCode!;
-      const offices = readWilayaOffices();
-      const heads = readWilayaHeads();
-      const office = offices.find((o) => o.code === code)!;
-      const head = heads.find((h) => h.wilayaCode === code)!;
-
-      const roster = readRoster();
-      const scopedMembers = roster.filter((m) =>
-        isCityInWilayaScope(m.city, office.code, office.wilayaName)
-      );
-      const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
-      const store = readRecords();
-      const scopedClaims = store.claims.filter((c) => memberNums.has(c.ownerId));
-      const scopedEnrollments = readEnrollments().filter((e) =>
-        isCityInWilayaScope(e.city, office.code, office.wilayaName)
-      );
-
-      const safeMembers = scopedMembers.map(({ accessCode: _omit, ...rest }) => rest);
-
-      res.json({
-        account: sanitizeWilayaHeadForClient(head, office),
-        office,
-        stats: {
-          membersCount: safeMembers.length,
-          activeMembersCount: safeMembers.filter((m) => m.status === 'نشط').length,
-          claimsCount: scopedClaims.length,
-          pendingClaimsCount: scopedClaims.filter(
-            (c) => c.status === 'قيد الدراسة' || c.status === 'وثائق ناقصة'
-          ).length,
-          totalApprovedAmount: scopedClaims.reduce(
-            (sum, c) => sum + (Number(c.approvedAmount) || 0),
-            0
-          ),
-          enrollmentsCount: scopedEnrollments.length,
-          pendingEnrollmentsCount: scopedEnrollments.filter(
-            (e) => e.status === 'جاري التدقيق والموافقة'
-          ).length,
-        },
-        members: safeMembers,
-        claims: scopedClaims,
-        enrollments: scopedEnrollments,
-      });
+      res.json(buildWilayaHeadWorkspacePayload(req.wilayaCode!));
     }
   );
 
@@ -2339,6 +2380,608 @@ async function startServer() {
       };
       writeWilayaHeads(heads);
       res.json({ ok: true });
+    }
+  );
+
+  // --- Wilaya Head Scoped Backup, Restore & Per-Wilaya Excel ---
+  app.get(
+    '/api/wilaya-head/backup/export',
+    requireWilayaHeadSession,
+    (req: AuthedWilayaHeadRequest, res: Response) => {
+      const code = req.wilayaCode!;
+      const offices = readWilayaOffices();
+      const heads = readWilayaHeads();
+      const office = offices.find((o) => o.code === code)!;
+      const head = heads.find((h) => h.wilayaCode === code)!;
+
+      const roster = readRoster();
+      const scopedMembers = roster
+        .filter((m) => isCityInWilayaScope(m.city, office.code, office.wilayaName))
+        .map(({ accessCode: _omit, ...rest }) => rest);
+      const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
+
+      const store = readRecords();
+      const scopedDependents = store.dependents.filter((d) => memberNums.has(d.ownerId));
+      const scopedClaims = store.claims.filter((c) => memberNums.has(c.ownerId));
+      const scopedAuthorizations = store.authorizations.filter((a) =>
+        memberNums.has(a.ownerId)
+      );
+      const scopedEnrollments = readEnrollments().filter((e) =>
+        isCityInWilayaScope(e.city, office.code, office.wilayaName)
+      );
+
+      const backupPayload = {
+        format: 'mutnatec-wilaya-backup-v1',
+        wilayaCode: code,
+        wilayaName: office.wilayaName,
+        exportedAt: new Date().toISOString(),
+        office,
+        headProfile: {
+          fullName: head.fullName,
+          title: head.title,
+          phone: head.phone,
+          email: head.email,
+        },
+        members: scopedMembers,
+        dependents: scopedDependents,
+        claims: scopedClaims,
+        authorizations: scopedAuthorizations,
+        enrollments: scopedEnrollments,
+      };
+
+      const dateTag = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="MUTNATEC-Wilaya-${code}-Backup-${dateTag}.json"`
+      );
+      res.send(JSON.stringify(backupPayload, null, 2));
+    }
+  );
+
+  app.post(
+    '/api/wilaya-head/backup/restore',
+    express.json({ limit: '6mb' }),
+    requireWilayaHeadSession,
+    async (req: AuthedWilayaHeadRequest, res: Response) => {
+      const code = req.wilayaCode!;
+      const body = req.body as {
+        backup?: unknown;
+        mode?: unknown;
+      };
+      const mode = body.mode === 'replace_wilaya' ? 'replace_wilaya' : 'merge';
+
+      if (!body.backup || typeof body.backup !== 'object') {
+        res.status(400).json({ error: 'ملف النسخة الاحتياطية غير صالح.' });
+        return;
+      }
+
+      const rawBackup = body.backup as Record<string, unknown>;
+      if (rawBackup.format !== 'mutnatec-wilaya-backup-v1') {
+        res.status(400).json({
+          error: 'صيغة الملف غير معتمدة. يرجى رفع ملف نسخة احتياطية صادر من بوابة التعاضدية.',
+        });
+        return;
+      }
+
+      const backupCode =
+        typeof rawBackup.wilayaCode === 'string'
+          ? rawBackup.wilayaCode.trim().padStart(2, '0')
+          : '';
+      if (backupCode !== code) {
+        res.status(403).json({
+          error: `هذا الملف تابع للولاية رقم (${backupCode || 'غير معروف'}) ولا يمكن استعادته داخل حساب الولاية رقم (${code}).`,
+        });
+        return;
+      }
+
+      const offices = readWilayaOffices();
+      const heads = readWilayaHeads();
+      const officeIdx = offices.findIndex((o) => o.code === code);
+      const headIdx = heads.findIndex((h) => h.wilayaCode === code);
+      if (officeIdx === -1 || headIdx === -1) {
+        res.status(404).json({ error: 'بيانات المركز الولائي غير موجودة.' });
+        return;
+      }
+      const targetOffice = offices[officeIdx];
+
+      // 1. Restore Wilaya Office & Head Profile (never modify password/status/username/code)
+      if (rawBackup.office && typeof rawBackup.office === 'object') {
+        const bOff = rawBackup.office as Record<string, unknown>;
+        const safeMaps = sanitizeWebUrl(bOff.googleMapsUrl);
+        const safeSecMaps = sanitizeWebUrl(bOff.secondaryMapsUrl);
+        const safeSocial = sanitizeWebUrl(bOff.socialUrl);
+        const lat = parseOptionalCoord(bOff.lat, 18, 38);
+        const lng = parseOptionalCoord(bOff.lng, -9.5, 12.5);
+
+        offices[officeIdx] = {
+          ...targetOffice,
+          officeName:
+            typeof bOff.officeName === 'string'
+              ? bOff.officeName.trim().slice(0, 140)
+              : targetOffice.officeName,
+          representativeName:
+            typeof bOff.representativeName === 'string'
+              ? bOff.representativeName.trim().slice(0, 120)
+              : targetOffice.representativeName,
+          headTitle:
+            typeof bOff.headTitle === 'string' && bOff.headTitle.trim()
+              ? bOff.headTitle.trim().slice(0, 120)
+              : targetOffice.headTitle,
+          phone:
+            typeof bOff.phone === 'string'
+              ? bOff.phone.trim().slice(0, 60)
+              : targetOffice.phone,
+          accountInfo:
+            typeof bOff.accountInfo === 'string'
+              ? bOff.accountInfo.trim().slice(0, 180)
+              : targetOffice.accountInfo,
+          address:
+            typeof bOff.address === 'string'
+              ? bOff.address.trim().slice(0, 220)
+              : targetOffice.address,
+          googleMapsUrl: safeMaps.ok ? safeMaps.value : targetOffice.googleMapsUrl,
+          secondaryMapsUrl: safeSecMaps.ok
+            ? safeSecMaps.value
+            : targetOffice.secondaryMapsUrl,
+          socialUrl: safeSocial.ok ? safeSocial.value : targetOffice.socialUrl,
+          lat: lat ?? targetOffice.lat,
+          lng: lng ?? targetOffice.lng,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      if (rawBackup.headProfile && typeof rawBackup.headProfile === 'object') {
+        const bHead = rawBackup.headProfile as Record<string, unknown>;
+        heads[headIdx] = {
+          ...heads[headIdx],
+          fullName:
+            typeof bHead.fullName === 'string'
+              ? bHead.fullName.trim().slice(0, 120)
+              : heads[headIdx].fullName,
+          title:
+            typeof bHead.title === 'string' && bHead.title.trim()
+              ? bHead.title.trim().slice(0, 120)
+              : heads[headIdx].title,
+          phone:
+            typeof bHead.phone === 'string'
+              ? bHead.phone.trim().slice(0, 60)
+              : heads[headIdx].phone,
+          email:
+            typeof bHead.email === 'string'
+              ? bHead.email.trim().slice(0, 160)
+              : heads[headIdx].email,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      // 2. Restore Wilaya Members strictly within wilaya scope
+      const existingRoster = readRoster();
+      const otherWilayaRoster = existingRoster.filter(
+        (m) => !isMemberOwnedByWilayaStrict(m.city, code, targetOffice.wilayaName, offices)
+      );
+      const otherWilayaNums = new Set(
+        otherWilayaRoster.map((m) => m.membershipNumber.toUpperCase())
+      );
+      const existingByNum = new Map(
+        existingRoster.map((m) => [m.membershipNumber.toUpperCase(), m])
+      );
+
+      const incomingMembersRaw = Array.isArray(rawBackup.members) ? rawBackup.members : [];
+      const sanitizedWilayaMembers: InternalRosterRecord[] = [];
+      for (const item of incomingMembersRaw) {
+        if (!item || typeof item !== 'object') continue;
+        const r = item as Record<string, unknown>;
+        const membershipNumber =
+          typeof r.membershipNumber === 'string' ? r.membershipNumber.trim() : '';
+        const fullName =
+          typeof r.fullName === 'string' ? r.fullName.trim().slice(0, 120) : '';
+        const nationalId =
+          typeof r.nationalId === 'string' ? r.nationalId.trim().slice(0, 32) : '';
+        if (
+          !SAFE_ID_REGEX.test(membershipNumber) ||
+          membershipNumber.length < 4 ||
+          fullName.length < 2 ||
+          !SAFE_ID_REGEX.test(nationalId)
+        ) {
+          continue;
+        }
+        const key = membershipNumber.toUpperCase();
+        // Never overwrite a member belonging to a different wilaya
+        if (otherWilayaNums.has(key)) continue;
+
+        const existing = existingByNum.get(key);
+        const rawCity = typeof r.city === 'string' ? r.city.trim().slice(0, 80) : '';
+        const scopedCity = isMemberOwnedByWilayaStrict(
+          rawCity,
+          code,
+          targetOffice.wilayaName,
+          offices
+        )
+          ? rawCity
+          : targetOffice.wilayaName;
+        const plan =
+          typeof r.coveragePlan === 'string' && VALID_PLANS.has(r.coveragePlan)
+            ? r.coveragePlan
+            : 'التغطية التكميلية+';
+        const status =
+          typeof r.status === 'string' && VALID_MEMBER_STATUSES.has(r.status)
+            ? r.status
+            : 'نشط';
+        const rawCeiling = Number(r.annualCeiling);
+        const rawSeniority = Number(r.seniorityYears);
+
+        sanitizedWilayaMembers.push({
+          membershipNumber,
+          accessCode:
+            existing?.accessCode ||
+            crypto.randomBytes(4).toString('hex').toUpperCase(),
+          fullName,
+          email:
+            typeof r.email === 'string' && r.email.trim()
+              ? r.email.trim().slice(0, 160)
+              : 'member@mutnatec.dz',
+          nationalId,
+          gender: r.gender === 'أنثى' ? 'أنثى' : 'ذكر',
+          seniorityYears:
+            Number.isFinite(rawSeniority) && rawSeniority >= 0 && rawSeniority <= 60
+              ? Math.round(rawSeniority)
+              : 5,
+          enrollmentYear:
+            typeof r.enrollmentYear === 'string' && /^\d{4}$/.test(r.enrollmentYear)
+              ? r.enrollmentYear
+              : '2026',
+          sector:
+            typeof r.sector === 'string' && r.sector.trim()
+              ? r.sector.trim().slice(0, 100)
+              : 'التربية الوطنية — التعليم الثانوي',
+          city: scopedCity,
+          municipality:
+            typeof r.municipality === 'string' && r.municipality.trim()
+              ? r.municipality.trim().slice(0, 80)
+              : scopedCity,
+          institution:
+            typeof r.institution === 'string' && r.institution.trim()
+              ? r.institution.trim().slice(0, 140)
+              : 'مؤسسة تربوية',
+          phone:
+            typeof r.phone === 'string' && r.phone.trim()
+              ? r.phone.trim().slice(0, 30)
+              : '0550000000',
+          rib:
+            typeof r.rib === 'string' && r.rib.trim()
+              ? r.rib.replace(/\s+/g, '').slice(0, 34)
+              : '00799999000000000000',
+          coveragePlan: plan,
+          annualCeiling:
+            Number.isFinite(rawCeiling) && rawCeiling >= 10000 && rawCeiling <= 2000000
+              ? rawCeiling
+              : 250000,
+          status,
+          notes:
+            typeof r.notes === 'string' ? r.notes.trim().slice(0, 240) : '',
+        });
+      }
+
+      let finalRoster: InternalRosterRecord[];
+      if (mode === 'replace_wilaya') {
+        finalRoster = [...sanitizedWilayaMembers, ...otherWilayaRoster];
+      } else {
+        const mergedMap = new Map(
+          existingRoster.map((m) => [m.membershipNumber.toUpperCase(), m])
+        );
+        for (const m of sanitizedWilayaMembers) {
+          mergedMap.set(m.membershipNumber.toUpperCase(), m);
+        }
+        finalRoster = Array.from(mergedMap.values());
+      }
+
+      const finalWilayaMemberNums = new Set(
+        finalRoster
+          .filter((m) =>
+            isMemberOwnedByWilayaStrict(m.city, code, targetOffice.wilayaName, offices)
+          )
+          .map((m) => m.membershipNumber)
+      );
+
+      // 3. Restore Dependents, Claims & Authorizations strictly for this wilaya's members
+      const store = readRecords();
+      const incomingDeps = Array.isArray(rawBackup.dependents) ? rawBackup.dependents : [];
+      const incomingClaims = Array.isArray(rawBackup.claims) ? rawBackup.claims : [];
+      const incomingAuths = Array.isArray(rawBackup.authorizations)
+        ? rawBackup.authorizations
+        : [];
+
+      const safeDeps = incomingDeps.filter(
+        (d): d is InternalDependentRecord =>
+          Boolean(d && typeof d === 'object') &&
+          typeof (d as InternalDependentRecord).id === 'string' &&
+          SAFE_ID_REGEX.test((d as InternalDependentRecord).id) &&
+          finalWilayaMemberNums.has((d as InternalDependentRecord).ownerId)
+      );
+
+      const safeClaims = incomingClaims.filter(
+        (c): c is InternalClaimRecord =>
+          Boolean(c && typeof c === 'object') &&
+          typeof (c as InternalClaimRecord).id === 'string' &&
+          SAFE_ID_REGEX.test((c as InternalClaimRecord).id) &&
+          finalWilayaMemberNums.has((c as InternalClaimRecord).ownerId) &&
+          VALID_CLAIM_STATUSES.has((c as InternalClaimRecord).status)
+      );
+
+      const safeAuths = incomingAuths.filter(
+        (a): a is InternalAuthRecord =>
+          Boolean(a && typeof a === 'object') &&
+          typeof (a as InternalAuthRecord).id === 'string' &&
+          SAFE_ID_REGEX.test((a as InternalAuthRecord).id) &&
+          finalWilayaMemberNums.has((a as InternalAuthRecord).ownerId) &&
+          VALID_AUTH_STATUSES.has((a as InternalAuthRecord).status)
+      );
+
+      const mergeById = <T extends { id: string; ownerId: string }>(
+        existingList: T[],
+        incomingList: T[]
+      ): T[] => {
+        const otherRecords = existingList.filter(
+          (item) => !finalWilayaMemberNums.has(item.ownerId)
+        );
+        if (mode === 'replace_wilaya') {
+          return [...incomingList, ...otherRecords];
+        }
+        const map = new Map(existingList.map((item) => [item.id, item]));
+        for (const item of incomingList) {
+          map.set(item.id, item);
+        }
+        return Array.from(map.values());
+      };
+
+      const nextRecords: InternalRecordsStore = {
+        dependents: mergeById(store.dependents, safeDeps),
+        claims: mergeById(store.claims, safeClaims),
+        authorizations: mergeById(store.authorizations, safeAuths),
+      };
+
+      // 4. Restore Enrollments strictly scoped to this wilaya
+      const existingEnrollments = readEnrollments();
+      const incomingEnrollments = Array.isArray(rawBackup.enrollments)
+        ? rawBackup.enrollments
+        : [];
+      const safeEnrollments = incomingEnrollments
+        .filter(
+          (e): e is IndividualEnrollmentRecord =>
+            Boolean(e && typeof e === 'object') &&
+            typeof (e as IndividualEnrollmentRecord).id === 'string' &&
+            SAFE_ID_REGEX.test((e as IndividualEnrollmentRecord).id) &&
+            VALID_ENROLLMENT_STATUSES.has((e as IndividualEnrollmentRecord).status)
+        )
+        .map((e) => ({
+          ...e,
+          city: isMemberOwnedByWilayaStrict(
+            e.city || '',
+            code,
+            targetOffice.wilayaName,
+            offices
+          )
+            ? e.city
+            : targetOffice.wilayaName,
+        }));
+
+      const otherEnrollments = existingEnrollments.filter(
+        (e) => !isMemberOwnedByWilayaStrict(e.city, code, targetOffice.wilayaName, offices)
+      );
+      let finalEnrollments: IndividualEnrollmentRecord[];
+      if (mode === 'replace_wilaya') {
+        finalEnrollments = [...safeEnrollments, ...otherEnrollments];
+      } else {
+        const enrMap = new Map(existingEnrollments.map((e) => [e.id, e]));
+        for (const e of safeEnrollments) {
+          enrMap.set(e.id, e);
+        }
+        finalEnrollments = Array.from(enrMap.values());
+      }
+
+      writeWilayaOffices(offices);
+      writeWilayaHeads(heads);
+      writeRoster(finalRoster);
+      writeRecords(nextRecords);
+      writeEnrollments(finalEnrollments);
+      await triggerExcelSync();
+
+      res.json({
+        restored: {
+          membersCount: sanitizedWilayaMembers.length,
+          claimsCount: safeClaims.length,
+          dependentsCount: safeDeps.length,
+          authorizationsCount: safeAuths.length,
+          enrollmentsCount: safeEnrollments.length,
+        },
+        workspace: buildWilayaHeadWorkspacePayload(code),
+      });
+    }
+  );
+
+  app.get(
+    '/api/wilaya-head/excel/export',
+    requireWilayaHeadSession,
+    async (req: AuthedWilayaHeadRequest, res: Response) => {
+      try {
+        const code = req.wilayaCode!;
+        const offices = readWilayaOffices();
+        const heads = readWilayaHeads();
+        const office = offices.find((o) => o.code === code)!;
+        const head = heads.find((h) => h.wilayaCode === code);
+
+        const scopedMembers = readRoster().filter((m) =>
+          isCityInWilayaScope(m.city, office.code, office.wilayaName)
+        );
+        const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
+        const scopedClaims = readRecords().claims.filter((c) =>
+          memberNums.has(c.ownerId)
+        );
+        const scopedEnrollments = readEnrollments().filter((e) =>
+          isCityInWilayaScope(e.city, office.code, office.wilayaName)
+        );
+
+        const buffer = await buildWilayaMembersWorkbookBuffer({
+          wilaya: office,
+          head: head
+            ? {
+                wilayaCode: head.wilayaCode,
+                username: head.username,
+                fullName: head.fullName,
+                title: head.title,
+                phone: head.phone,
+                email: head.email,
+                status: head.status,
+              }
+            : undefined,
+          members: scopedMembers,
+          claims: scopedClaims,
+          enrollments: scopedEnrollments,
+        });
+
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="MUTNATEC-Wilaya-${code}-Members.xlsx"`
+        );
+        res.send(buffer);
+      } catch {
+        res.status(500).json({ error: 'تعذر تصدير قاعدة بيانات Excel للولاية.' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/wilaya-head/excel/import',
+    express.json({ limit: '6mb' }),
+    requireWilayaHeadSession,
+    async (req: AuthedWilayaHeadRequest, res: Response) => {
+      try {
+        const code = req.wilayaCode!;
+        const body = req.body as { fileBase64?: unknown; mode?: unknown };
+        const rawB64 = typeof body.fileBase64 === 'string' ? body.fileBase64.trim() : '';
+        const mode = body.mode === 'replace_wilaya' ? 'replace_wilaya' : 'merge';
+
+        if (!rawB64 || rawB64.length > 6 * 1024 * 1024) {
+          res.status(400).json({
+            error: 'ملف Excel غير صالح أو يتجاوز الحجم المسموح (4 ميغابايت).',
+          });
+          return;
+        }
+
+        const cleanB64 = rawB64.includes(',') ? rawB64.split(',').pop() || '' : rawB64;
+        const buffer = Buffer.from(cleanB64, 'base64');
+        if (buffer.length === 0 || buffer.length > 4 * 1024 * 1024) {
+          res.status(400).json({ error: 'حجم ملف Excel غير مقبول.' });
+          return;
+        }
+
+        const parsedRows = await parseWarehouseOrWilayaMembersExcel(
+          buffer,
+          {
+            safeIdRegex: SAFE_ID_REGEX,
+            validPlans: VALID_PLANS,
+            validStatuses: VALID_MEMBER_STATUSES,
+          },
+          code
+        );
+
+        const offices = readWilayaOffices();
+        const targetOffice = offices.find((o) => o.code === code)!;
+        const existingRoster = readRoster();
+        const otherWilayaRoster = existingRoster.filter(
+          (m) => !isMemberOwnedByWilayaStrict(m.city, code, targetOffice.wilayaName, offices)
+        );
+        const otherWilayaNums = new Set(
+          otherWilayaRoster.map((m) => m.membershipNumber.toUpperCase())
+        );
+        const existingByNum = new Map(
+          existingRoster.map((m) => [m.membershipNumber.toUpperCase(), m])
+        );
+
+        // Keep only rows that match this wilaya (or have blank/matching hint) and don't collide with other wilayas
+        const scopedIncoming: InternalRosterRecord[] = [];
+        for (const row of parsedRows) {
+          if (row.wilayaCodeHint && row.wilayaCodeHint !== code) continue;
+          if (
+            row.city &&
+            row.city !== 'الجزائر' &&
+            !isMemberOwnedByWilayaStrict(row.city, code, targetOffice.wilayaName, offices)
+          ) {
+            continue;
+          }
+          const key = row.membershipNumber.toUpperCase();
+          if (otherWilayaNums.has(key)) continue;
+
+          const prev = existingByNum.get(key);
+          scopedIncoming.push({
+            membershipNumber: row.membershipNumber,
+            accessCode:
+              row.accessCode && row.accessCode.length >= 4
+                ? row.accessCode
+                : prev?.accessCode || crypto.randomBytes(4).toString('hex').toUpperCase(),
+            fullName: row.fullName,
+            email: row.email,
+            nationalId: row.nationalId,
+            gender: row.gender,
+            seniorityYears: row.seniorityYears,
+            enrollmentYear: row.enrollmentYear || prev?.enrollmentYear || '2026',
+            sector: row.sector,
+            city: isMemberOwnedByWilayaStrict(
+              row.city,
+              code,
+              targetOffice.wilayaName,
+              offices
+            )
+              ? row.city
+              : targetOffice.wilayaName,
+            municipality: row.municipality || targetOffice.wilayaName,
+            institution: row.institution,
+            phone: row.phone,
+            rib: row.rib,
+            coveragePlan: row.coveragePlan,
+            annualCeiling: row.annualCeiling,
+            status: row.status,
+            notes: row.notes || prev?.notes || '',
+          });
+        }
+
+        if (scopedIncoming.length === 0) {
+          res.status(400).json({
+            error: `لم يتم العثور على سجلات منخرطين خاصة بالولاية (${targetOffice.wilayaName}) داخل ملف Excel المرفوع.`,
+          });
+          return;
+        }
+
+        let nextRoster: InternalRosterRecord[];
+        if (mode === 'replace_wilaya') {
+          nextRoster = [...scopedIncoming, ...otherWilayaRoster];
+        } else {
+          const merged = new Map(
+            existingRoster.map((m) => [m.membershipNumber.toUpperCase(), m])
+          );
+          for (const m of scopedIncoming) {
+            merged.set(m.membershipNumber.toUpperCase(), m);
+          }
+          nextRoster = Array.from(merged.values());
+        }
+
+        writeRoster(nextRoster);
+        await triggerExcelSync();
+
+        res.json({
+          importedCount: scopedIncoming.length,
+          workspace: buildWilayaHeadWorkspacePayload(code),
+        });
+      } catch {
+        res.status(400).json({
+          error: 'تعذر قراءة ملف Excel (.xlsx) أو استعادة البيانات منه.',
+        });
+      }
     }
   );
 
@@ -3174,6 +3817,217 @@ async function startServer() {
         });
       } catch {
         res.status(400).json({ error: 'تعذر قراءة ملف Excel (.xlsx). يرجى التحقق من سلامة الملف.' });
+      }
+    }
+  );
+
+  // --- National Members Excel Warehouse (96 Wilayas Database) ---
+  app.get(
+    '/api/admin/national-warehouse/meta',
+    requireAdminSession,
+    async (_req: Request, res: Response) => {
+      try {
+        const { warehouseFile } = getNationalWarehousePaths(DATA_DIR);
+        let meta = readNationalWarehouseMeta(DATA_DIR);
+        if (!fs.existsSync(warehouseFile) || !meta.lastSyncedAt) {
+          await triggerExcelSync();
+          meta = readNationalWarehouseMeta(DATA_DIR);
+        }
+        res.json(meta);
+      } catch {
+        res.status(500).json({ error: 'تعذر قراءة بيانات المخزن الوطني لملفات المنخرطين.' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/admin/national-warehouse/sync',
+    requireAdminSession,
+    async (_req: Request, res: Response) => {
+      try {
+        await triggerExcelSync();
+        const meta = readNationalWarehouseMeta(DATA_DIR);
+        res.json(meta);
+      } catch {
+        res.status(500).json({ error: 'تعذر تحديث ومزامنة المخزن الوطني Excel.' });
+      }
+    }
+  );
+
+  app.get(
+    '/api/admin/national-warehouse/export',
+    requireAdminSession,
+    async (_req: Request, res: Response) => {
+      try {
+        await triggerExcelSync();
+        const { warehouseFile } = getNationalWarehousePaths(DATA_DIR);
+        const buffer = fs.readFileSync(warehouseFile);
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader(
+          'Content-Disposition',
+          'attachment; filename="MUTNATEC-National-Members-Warehouse-96Wilayas.xlsx"'
+        );
+        res.send(buffer);
+      } catch {
+        res.status(500).json({ error: 'تعذر تصدير ملف المخزن الوطني Excel.' });
+      }
+    }
+  );
+
+  app.get(
+    '/api/admin/national-warehouse/wilaya/:code/export',
+    requireAdminSession,
+    async (req: Request, res: Response) => {
+      try {
+        const code = String(req.params.code || '').trim().padStart(2, '0');
+        if (!isValidWilayaCode(code)) {
+          res.status(400).json({ error: 'رمز الولاية غير صالح (01 إلى 96).' });
+          return;
+        }
+        const offices = readWilayaOffices();
+        const heads = readWilayaHeads();
+        const office = offices.find((o) => o.code === code)!;
+        const head = heads.find((h) => h.wilayaCode === code);
+
+        const scopedMembers = readRoster().filter((m) =>
+          isCityInWilayaScope(m.city, office.code, office.wilayaName)
+        );
+        const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
+        const scopedClaims = readRecords().claims.filter((c) =>
+          memberNums.has(c.ownerId)
+        );
+        const scopedEnrollments = readEnrollments().filter((e) =>
+          isCityInWilayaScope(e.city, office.code, office.wilayaName)
+        );
+
+        const buffer = await buildWilayaMembersWorkbookBuffer({
+          wilaya: office,
+          head: head
+            ? {
+                wilayaCode: head.wilayaCode,
+                username: head.username,
+                fullName: head.fullName,
+                title: head.title,
+                phone: head.phone,
+                email: head.email,
+                status: head.status,
+              }
+            : undefined,
+          members: scopedMembers,
+          claims: scopedClaims,
+          enrollments: scopedEnrollments,
+        });
+
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="MUTNATEC-Wilaya-${code}-Members.xlsx"`
+        );
+        res.send(buffer);
+      } catch {
+        res.status(500).json({ error: 'تعذر تصدير ملف Excel للولاية المطلوبة.' });
+      }
+    }
+  );
+
+  app.post(
+    '/api/admin/national-warehouse/import',
+    express.json({ limit: '6mb' }),
+    requireAdminSession,
+    async (req: Request, res: Response) => {
+      try {
+        const body = req.body as { fileBase64?: unknown; mode?: unknown };
+        const rawB64 = typeof body.fileBase64 === 'string' ? body.fileBase64.trim() : '';
+        const mode = body.mode === 'replace' ? 'replace' : 'merge';
+
+        if (!rawB64 || rawB64.length > 6 * 1024 * 1024) {
+          res.status(400).json({
+            error: 'ملف Excel غير صالح أو يتجاوز الحجم المسموح (4 ميغابايت).',
+          });
+          return;
+        }
+
+        const cleanB64 = rawB64.includes(',') ? rawB64.split(',').pop() || '' : rawB64;
+        const buffer = Buffer.from(cleanB64, 'base64');
+        if (buffer.length === 0 || buffer.length > 4 * 1024 * 1024) {
+          res.status(400).json({ error: 'حجم ملف Excel غير مقبول.' });
+          return;
+        }
+
+        const parsedRows = await parseWarehouseOrWilayaMembersExcel(buffer, {
+          safeIdRegex: SAFE_ID_REGEX,
+          validPlans: VALID_PLANS,
+          validStatuses: VALID_MEMBER_STATUSES,
+        });
+
+        if (parsedRows.length === 0) {
+          res.status(400).json({
+            error:
+              'لم يتم العثور على سجلات منخرطين صالحة داخل ملف المخزن الوطني Excel.',
+          });
+          return;
+        }
+
+        const existingRoster = readRoster();
+        const existingByNum = new Map(
+          existingRoster.map((m) => [m.membershipNumber.toUpperCase(), m])
+        );
+
+        const normalizedRows: InternalRosterRecord[] = parsedRows.map((row) => {
+          const prev = existingByNum.get(row.membershipNumber.toUpperCase());
+          return {
+            membershipNumber: row.membershipNumber,
+            accessCode:
+              row.accessCode && row.accessCode.length >= 4
+                ? row.accessCode
+                : prev?.accessCode || crypto.randomBytes(4).toString('hex').toUpperCase(),
+            fullName: row.fullName,
+            email: row.email,
+            nationalId: row.nationalId,
+            gender: row.gender,
+            seniorityYears: row.seniorityYears,
+            enrollmentYear: row.enrollmentYear || prev?.enrollmentYear || '2026',
+            sector: row.sector,
+            city: row.city,
+            municipality: row.municipality,
+            institution: row.institution,
+            phone: row.phone,
+            rib: row.rib,
+            coveragePlan: row.coveragePlan,
+            annualCeiling: row.annualCeiling,
+            status: row.status,
+            notes: row.notes || prev?.notes || '',
+          };
+        });
+
+        if (mode === 'replace') {
+          writeRoster(normalizedRows);
+        } else {
+          const merged = new Map(
+            existingRoster.map((m) => [m.membershipNumber.toUpperCase(), m])
+          );
+          for (const m of normalizedRows) {
+            merged.set(m.membershipNumber.toUpperCase(), m);
+          }
+          writeRoster(Array.from(merged.values()));
+        }
+
+        await triggerExcelSync();
+        const meta = readNationalWarehouseMeta(DATA_DIR);
+        res.json({
+          importedCount: normalizedRows.length,
+          meta,
+        });
+      } catch {
+        res.status(400).json({
+          error: 'تعذر قراءة ملف المخزن الوطني Excel (.xlsx).',
+        });
       }
     }
   );

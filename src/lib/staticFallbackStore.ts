@@ -16,8 +16,10 @@ import type {
   MemberGender,
   MemberProfile,
   MemberStatus,
+  NationalWarehouseMeta,
   PublicMemberStats,
   PublicWilayaMapEntry,
+  WilayaBackupRestoreResponse,
   WilayaHeadAccount,
   WilayaHeadProvisionedCredential,
   WilayaHeadStatus,
@@ -1293,6 +1295,12 @@ export async function staticFetchWilayaHeadWorkspace(
         (e) => e.status === 'جاري التدقيق والموافقة'
       ).length,
     },
+    warehouseSync: {
+      fileName: 'national-members-warehouse.xlsx',
+      lastSyncedAt: new Date().toISOString(),
+      nationalTotalMembers: state.roster.length,
+      wilayaSyncedMembers: safeMembers.length,
+    },
     members: safeMembers,
     claims: scopedClaims,
     enrollments: scopedEnrollments,
@@ -1966,4 +1974,171 @@ export async function staticVerifyCardQr(
     accreditationNumber: '96 / 04',
     verifiedAt: new Date().toISOString(),
   };
+}
+
+export async function staticExportWilayaBackup(token: string): Promise<Blob> {
+  const code = parseStaticWilayaHeadToken(token);
+  if (!code) throw new Error('جلسة رئيس التعاضدية الولائية غير صالحة.');
+  const state = readState();
+  const office = state.wilayas.find((w) => w.code === code)!;
+  const head = state.wilayaHeads.find((h) => h.wilayaCode === code)!;
+  const scopedMembers = state.roster
+    .filter((m) => isStaticCityInScope(m.city, office.code, office.wilayaName))
+    .map(({ accessCode: _omit, ...rest }) => rest);
+  const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
+  const payload = {
+    format: 'mutnatec-wilaya-backup-v1',
+    wilayaCode: code,
+    wilayaName: office.wilayaName,
+    exportedAt: new Date().toISOString(),
+    office,
+    headProfile: {
+      fullName: head.fullName,
+      title: head.title,
+      phone: head.phone,
+      email: head.email,
+    },
+    members: scopedMembers,
+    dependents: state.dependents.filter((d) => memberNums.has(d.ownerId)),
+    claims: state.claims.filter((c) => memberNums.has(c.ownerId)),
+    authorizations: state.authorizations.filter((a) => memberNums.has(a.ownerId)),
+    enrollments: state.enrollments.filter((e) =>
+      isStaticCityInScope(e.city, office.code, office.wilayaName)
+    ),
+  };
+  return new Blob([JSON.stringify(payload, null, 2)], {
+    type: 'application/json;charset=utf-8',
+  });
+}
+
+export async function staticRestoreWilayaBackup(
+  token: string,
+  backup: unknown,
+  mode: 'merge' | 'replace_wilaya' = 'merge'
+): Promise<WilayaBackupRestoreResponse> {
+  const code = parseStaticWilayaHeadToken(token);
+  if (!code) throw new Error('جلسة رئيس التعاضدية الولائية غير صالحة.');
+  if (!backup || typeof backup !== 'object') {
+    throw new Error('ملف النسخة الاحتياطية غير صالح.');
+  }
+  const raw = backup as Record<string, unknown>;
+  if (raw.format !== 'mutnatec-wilaya-backup-v1' || raw.wilayaCode !== code) {
+    throw new Error('صيغة النسخة الاحتياطية لا تطابق حساب هذه الولاية.');
+  }
+
+  const state = readState();
+  const office = state.wilayas.find((w) => w.code === code)!;
+  const otherRoster = state.roster.filter(
+    (m) => !isStaticCityInScope(m.city, office.code, office.wilayaName)
+  );
+  const existingByNum = new Map(
+    state.roster.map((m) => [m.membershipNumber.toUpperCase(), m])
+  );
+  const incomingMembers = Array.isArray(raw.members)
+    ? (raw.members as InternalRosterMember[])
+    : [];
+  const restoredMembers = incomingMembers.map((m) => ({
+    ...m,
+    city: office.wilayaName,
+    accessCode: existingByNum.get(m.membershipNumber.toUpperCase())?.accessCode || '123456',
+  }));
+
+  if (mode === 'replace_wilaya') {
+    state.roster = [...restoredMembers, ...otherRoster];
+  } else {
+    const map = new Map(state.roster.map((m) => [m.membershipNumber.toUpperCase(), m]));
+    for (const m of restoredMembers) {
+      map.set(m.membershipNumber.toUpperCase(), m);
+    }
+    state.roster = Array.from(map.values());
+  }
+
+  writeState(state);
+  const workspace = await staticFetchWilayaHeadWorkspace(token);
+  return {
+    restored: {
+      membersCount: restoredMembers.length,
+      claimsCount: Array.isArray(raw.claims) ? raw.claims.length : 0,
+      dependentsCount: Array.isArray(raw.dependents) ? raw.dependents.length : 0,
+      authorizationsCount: Array.isArray(raw.authorizations)
+        ? raw.authorizations.length
+        : 0,
+      enrollmentsCount: Array.isArray(raw.enrollments) ? raw.enrollments.length : 0,
+    },
+    workspace,
+  };
+}
+
+export async function staticExportWilayaExcelBlob(token: string): Promise<Blob> {
+  const workspace = await staticFetchWilayaHeadWorkspace(token);
+  const headers = ['رمز الولاية', 'الولاية', 'رقم الانخراط', 'الاسم واللقب', 'الهاتف', 'الوضعية'];
+  const rows = workspace.members.map((m) =>
+    [workspace.office.code, m.city, m.membershipNumber, m.fullName, m.phone, m.status].join(',')
+  );
+  return new Blob(['\uFEFF' + [headers.join(','), ...rows].join('\n')], {
+    type: 'text/csv;charset=utf-8;',
+  });
+}
+
+export async function staticFetchNationalWarehouseMeta(
+  adminToken: string
+): Promise<NationalWarehouseMeta> {
+  if (!parseStaticAdminToken(adminToken)) throw new Error('جلسة الإدارة غير صالحة.');
+  const state = readState();
+  const byWilaya = state.wilayas.map((w) => {
+    const members = state.roster.filter((m) =>
+      isStaticCityInScope(m.city, w.code, w.wilayaName)
+    );
+    const nums = new Set(members.map((m) => m.membershipNumber));
+    const claims = state.claims.filter((c) => nums.has(c.ownerId));
+    return {
+      code: w.code,
+      wilayaName: w.wilayaName,
+      officeName: w.officeName,
+      headName: w.representativeName,
+      phone: w.phone,
+      membersCount: members.length,
+      activeMembersCount: members.filter((m) => m.status === 'نشط').length,
+      claimsCount: claims.length,
+      enrollmentsCount: state.enrollments.filter((e) =>
+        isStaticCityInScope(e.city, w.code, w.wilayaName)
+      ).length,
+      totalAnnualCeiling: members.reduce((s, m) => s + (Number(m.annualCeiling) || 0), 0),
+      totalApprovedAmount: claims.reduce((s, c) => s + (Number(c.approvedAmount) || 0), 0),
+    };
+  });
+  return {
+    fileName: 'national-members-warehouse.xlsx',
+    lastSyncedAt: new Date().toISOString(),
+    fileSizeBytes: 24576,
+    totalMembers: state.roster.length,
+    activeMembers: state.roster.filter((m) => m.status === 'نشط').length,
+    totalWilayas: state.wilayas.length,
+    populatedWilayas: byWilaya.filter((b) => b.membersCount > 0).length,
+    byWilaya,
+  };
+}
+
+export async function staticDownloadNationalWarehouseBlob(adminToken: string): Promise<Blob> {
+  return staticDownloadExcelBlob(adminToken);
+}
+
+export async function staticDownloadAdminWilayaExcelBlob(
+  adminToken: string,
+  code: string
+): Promise<Blob> {
+  if (!parseStaticAdminToken(adminToken)) throw new Error('جلسة الإدارة غير صالحة.');
+  const state = readState();
+  const office = state.wilayas.find((w) => w.code === code.padStart(2, '0'));
+  if (!office) throw new Error('الولاية غير موجودة.');
+  const members = state.roster.filter((m) =>
+    isStaticCityInScope(m.city, office.code, office.wilayaName)
+  );
+  const headers = ['رمز الولاية', 'الولاية', 'رقم الانخراط', 'الاسم واللقب', 'الوضعية'];
+  const rows = members.map((m) =>
+    [office.code, m.city, m.membershipNumber, m.fullName, m.status].join(',')
+  );
+  return new Blob(['\uFEFF' + [headers.join(','), ...rows].join('\n')], {
+    type: 'text/csv;charset=utf-8;',
+  });
 }

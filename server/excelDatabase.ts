@@ -19,6 +19,8 @@ export interface ExcelRosterRecord {
   coveragePlan: string;
   annualCeiling: number;
   status: string;
+  enrollmentYear?: string;
+  notes?: string;
 }
 
 export interface ExcelDependentRecord {
@@ -106,6 +108,16 @@ export interface ExcelEnrollmentRecord {
   updatedAt: string;
 }
 
+export interface ExcelWilayaHeadLite {
+  wilayaCode: string;
+  username: string;
+  fullName: string;
+  title: string;
+  phone: string;
+  email: string;
+  status: string;
+}
+
 export interface DatabaseSnapshot {
   roster: ExcelRosterRecord[];
   dependents: ExcelDependentRecord[];
@@ -113,6 +125,32 @@ export interface DatabaseSnapshot {
   authorizations: ExcelAuthRecord[];
   enrollments: ExcelEnrollmentRecord[];
   wilayas: ExcelWilayaRecord[];
+  wilayaHeads?: ExcelWilayaHeadLite[];
+}
+
+export interface NationalWarehouseWilayaSummary {
+  code: string;
+  wilayaName: string;
+  officeName: string;
+  headName: string;
+  phone: string;
+  membersCount: number;
+  activeMembersCount: number;
+  claimsCount: number;
+  enrollmentsCount: number;
+  totalAnnualCeiling: number;
+  totalApprovedAmount: number;
+}
+
+export interface NationalWarehouseMeta {
+  fileName: string;
+  lastSyncedAt: string;
+  fileSizeBytes: number;
+  totalMembers: number;
+  activeMembers: number;
+  totalWilayas: number;
+  populatedWilayas: number;
+  byWilaya: NationalWarehouseWilayaSummary[];
 }
 
 export interface ExcelSyncMeta {
@@ -174,6 +212,13 @@ export function getExcelPaths(dataDir: string) {
   return {
     excelFile: path.join(dataDir, 'mutnatec-database.xlsx'),
     metaFile: path.join(dataDir, 'excel-sync-meta.json'),
+  };
+}
+
+export function getNationalWarehousePaths(dataDir: string) {
+  return {
+    warehouseFile: path.join(dataDir, 'national-members-warehouse.xlsx'),
+    warehouseMetaFile: path.join(dataDir, 'national-warehouse-meta.json'),
   };
 }
 
@@ -664,10 +709,552 @@ export function syncExcelDatabaseWorkbook(
         fileSizeBytes: fs.statSync(excelFile).size,
       };
       fs.writeFileSync(metaFile, JSON.stringify(finalMeta, null, 2), 'utf8');
+
+      await writeNationalWarehouseWorkbookInternal(dataDir, snapshot, nowIso);
       return finalMeta;
     });
 
   return syncChain;
+}
+
+function resolveCanonicalWilayaForCity(
+  city: string,
+  wilayas: ExcelWilayaRecord[]
+): ExcelWilayaRecord | undefined {
+  const clean = (city || '').trim();
+  if (!clean) return undefined;
+
+  const exact = wilayas.find((w) => w.wilayaName === clean);
+  if (exact) return exact;
+
+  if (clean === 'الجزائر العاصمة') {
+    return wilayas.find((w) => w.code === '16');
+  }
+
+  const sortedByLength = [...wilayas].sort(
+    (a, b) => b.wilayaName.length - a.wilayaName.length
+  );
+  return sortedByLength.find(
+    (w) => clean.includes(w.wilayaName) || w.wilayaName.includes(clean)
+  );
+}
+
+function sanitizeExcelSheetName(
+  code: string,
+  wilayaName: string,
+  usedNames: Set<string>
+): string {
+  const cleanedName = (wilayaName || '')
+    .replace(/[*?:\\/[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const prefix = `${code}-`;
+  let candidate = `${prefix}${cleanedName}`.slice(0, 31).trim();
+  if (!candidate || candidate === prefix) candidate = `ولاية-${code}`;
+  let idx = 1;
+  let unique = candidate;
+  while (usedNames.has(unique)) {
+    const suffix = `_${idx++}`;
+    unique = `${candidate.slice(0, 31 - suffix.length)}${suffix}`;
+  }
+  usedNames.add(unique);
+  return unique;
+}
+
+const WAREHOUSE_MEMBER_COLUMNS: Array<{
+  header: string;
+  key: string;
+  width: number;
+  numFmt?: string;
+}> = [
+  { header: 'رمز الولاية', key: 'wilayaCode', width: 12 },
+  { header: 'الولاية', key: 'city', width: 20 },
+  { header: 'البلدية', key: 'municipality', width: 20 },
+  { header: 'رقم الانخراط', key: 'membershipNumber', width: 20 },
+  { header: 'الاسم واللقب', key: 'fullName', width: 28 },
+  { header: 'رقم التعريف الوطني (NIN)', key: 'nationalId', width: 22 },
+  { header: 'الجنس', key: 'gender', width: 10 },
+  { header: 'الأقدمية (سنوات)', key: 'seniorityYears', width: 15 },
+  { header: 'سنة الانخراط', key: 'enrollmentYear', width: 14 },
+  { header: 'البريد الإلكتروني', key: 'email', width: 24 },
+  { header: 'الهاتف', key: 'phone', width: 18 },
+  { header: 'القطاع', key: 'sector', width: 30 },
+  { header: 'المؤسسة', key: 'institution', width: 28 },
+  { header: 'الحساب البريدي/البنكي (CCP/RIB)', key: 'rib', width: 26 },
+  { header: 'صيغة التغطية', key: 'coveragePlan', width: 24 },
+  { header: 'السقف السنوي (د.ج)', key: 'annualCeiling', width: 19, numFmt: '#,##0.00' },
+  { header: 'الوضعية', key: 'status', width: 14 },
+  { header: 'عدد ملفات المرض', key: 'claimsCount', width: 15 },
+  { header: 'التعويضات المعتمدة (د.ج)', key: 'approvedAmount', width: 20, numFmt: '#,##0.00' },
+  { header: 'ملاحظات', key: 'notes', width: 26 },
+];
+
+function buildWarehouseMemberRows(snapshot: DatabaseSnapshot) {
+  const claimsStatsByMember = new Map<
+    string,
+    { count: number; approvedAmount: number }
+  >();
+  for (const c of snapshot.claims) {
+    const key = c.membershipNumber || c.ownerId;
+    const prev = claimsStatsByMember.get(key) || { count: 0, approvedAmount: 0 };
+    prev.count += 1;
+    prev.approvedAmount += Number(c.approvedAmount) || 0;
+    claimsStatsByMember.set(key, prev);
+  }
+
+  return snapshot.roster.map((m) => {
+    const matchedWilaya = resolveCanonicalWilayaForCity(m.city, snapshot.wilayas);
+    const claimStats = claimsStatsByMember.get(m.membershipNumber) || {
+      count: 0,
+      approvedAmount: 0,
+    };
+    return {
+      wilayaCode: matchedWilaya?.code || '16',
+      city: m.city || matchedWilaya?.wilayaName || 'الجزائر',
+      municipality: m.municipality || m.city || '',
+      membershipNumber: m.membershipNumber,
+      fullName: m.fullName,
+      nationalId: m.nationalId,
+      gender: m.gender || 'ذكر',
+      seniorityYears: Number(m.seniorityYears) || 0,
+      enrollmentYear: m.enrollmentYear || '2026',
+      email: m.email || '',
+      phone: m.phone || '',
+      sector: m.sector || '',
+      institution: m.institution || '',
+      rib: m.rib || '',
+      coveragePlan: m.coveragePlan || 'التغطية التكميلية+',
+      annualCeiling: Number(m.annualCeiling) || 0,
+      status: m.status || 'نشط',
+      claimsCount: claimStats.count,
+      approvedAmount: claimStats.approvedAmount,
+      notes: m.notes || '',
+    };
+  });
+}
+
+async function writeNationalWarehouseWorkbookInternal(
+  dataDir: string,
+  snapshot: DatabaseSnapshot,
+  nowIso: string
+): Promise<NationalWarehouseMeta> {
+  const { warehouseFile, warehouseMetaFile } = getNationalWarehousePaths(dataDir);
+  const headByCode = new Map(
+    (snapshot.wilayaHeads || []).map((h) => [h.wilayaCode, h])
+  );
+  const rows = buildWarehouseMemberRows(snapshot);
+
+  const rowsByWilaya = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const list = rowsByWilaya.get(r.wilayaCode) || [];
+    list.push(r);
+    rowsByWilaya.set(r.wilayaCode, list);
+  }
+
+  const enrollmentsByWilaya = new Map<string, number>();
+  for (const e of snapshot.enrollments) {
+    const w = resolveCanonicalWilayaForCity(e.city, snapshot.wilayas);
+    const code = w?.code || '16';
+    enrollmentsByWilaya.set(code, (enrollmentsByWilaya.get(code) || 0) + 1);
+  }
+
+  const byWilaya: NationalWarehouseWilayaSummary[] = snapshot.wilayas.map((w) => {
+    const wRows = rowsByWilaya.get(w.code) || [];
+    const head = headByCode.get(w.code);
+    return {
+      code: w.code,
+      wilayaName: w.wilayaName,
+      officeName: w.officeName || '',
+      headName: head?.fullName || w.representativeName || '',
+      phone: head?.phone || w.phone || '',
+      membersCount: wRows.length,
+      activeMembersCount: wRows.filter((r) => r.status === 'نشط').length,
+      claimsCount: wRows.reduce((s, r) => s + r.claimsCount, 0),
+      enrollmentsCount: enrollmentsByWilaya.get(w.code) || 0,
+      totalAnnualCeiling: wRows.reduce((s, r) => s + r.annualCeiling, 0),
+      totalApprovedAmount: wRows.reduce((s, r) => s + r.approvedAmount, 0),
+    };
+  });
+
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'MUTNATEC National Members Warehouse';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  const usedNames = new Set<string>();
+  const indexName = 'فهرس المخزن الوطني (96)';
+  const allName = 'المخزن الوطني للمنخرطين';
+  usedNames.add(indexName);
+  usedNames.add(allName);
+
+  // Sheet 1: 96 Wilayas Summary Index
+  styleTableSheet(
+    workbook.addWorksheet(indexName),
+    [
+      { header: 'رمز الولاية', key: 'code', width: 12 },
+      { header: 'الولاية / الفرع', key: 'wilayaName', width: 22 },
+      { header: 'تسمية المركز الولائي', key: 'officeName', width: 28 },
+      { header: 'رئيس المركز الولائي', key: 'headName', width: 24 },
+      { header: 'الهاتف', key: 'phone', width: 18 },
+      { header: 'إجمالي المنخرطين', key: 'membersCount', width: 16 },
+      { header: 'المنخرطون النشطون', key: 'activeMembersCount', width: 17 },
+      { header: 'ملفات المرض', key: 'claimsCount', width: 14 },
+      { header: 'طلبات الانخراط', key: 'enrollmentsCount', width: 15 },
+      { header: 'إجمالي السقف السنوي (د.ج)', key: 'totalAnnualCeiling', width: 22, numFmt: '#,##0.00' },
+      { header: 'التعويضات المعتمدة (د.ج)', key: 'totalApprovedAmount', width: 22, numFmt: '#,##0.00' },
+    ],
+    byWilaya as unknown as Array<Record<string, unknown>>
+  );
+
+  // Sheet 2: Consolidated National Members Database
+  styleTableSheet(
+    workbook.addWorksheet(allName),
+    WAREHOUSE_MEMBER_COLUMNS,
+    rows as unknown as Array<Record<string, unknown>>
+  );
+
+  // Sheets 3..98: Dedicated Sheet per Wilaya (01-96)
+  for (const w of snapshot.wilayas) {
+    const sheetTitle = sanitizeExcelSheetName(w.code, w.wilayaName, usedNames);
+    const wRows = rowsByWilaya.get(w.code) || [];
+    styleTableSheet(
+      workbook.addWorksheet(sheetTitle),
+      WAREHOUSE_MEMBER_COLUMNS,
+      wRows as unknown as Array<Record<string, unknown>>
+    );
+  }
+
+  const tmpFile = `${warehouseFile}.tmp`;
+  await workbook.xlsx.writeFile(tmpFile);
+  fs.renameSync(tmpFile, warehouseFile);
+
+  const meta: NationalWarehouseMeta = {
+    fileName: 'national-members-warehouse.xlsx',
+    lastSyncedAt: nowIso,
+    fileSizeBytes: fs.statSync(warehouseFile).size,
+    totalMembers: rows.length,
+    activeMembers: rows.filter((r) => r.status === 'نشط').length,
+    totalWilayas: snapshot.wilayas.length,
+    populatedWilayas: byWilaya.filter((b) => b.membersCount > 0).length,
+    byWilaya,
+  };
+  fs.writeFileSync(warehouseMetaFile, JSON.stringify(meta, null, 2), 'utf8');
+  return meta;
+}
+
+export function readNationalWarehouseMeta(dataDir: string): NationalWarehouseMeta {
+  const { warehouseFile, warehouseMetaFile } = getNationalWarehousePaths(dataDir);
+  try {
+    if (fs.existsSync(warehouseMetaFile)) {
+      const raw = JSON.parse(
+        fs.readFileSync(warehouseMetaFile, 'utf8')
+      ) as Partial<NationalWarehouseMeta>;
+      return {
+        fileName: 'national-members-warehouse.xlsx',
+        lastSyncedAt: raw.lastSyncedAt || '',
+        fileSizeBytes: fs.existsSync(warehouseFile)
+          ? fs.statSync(warehouseFile).size
+          : raw.fileSizeBytes ?? 0,
+        totalMembers: raw.totalMembers ?? 0,
+        activeMembers: raw.activeMembers ?? 0,
+        totalWilayas: raw.totalWilayas ?? 96,
+        populatedWilayas: raw.populatedWilayas ?? 0,
+        byWilaya: Array.isArray(raw.byWilaya) ? raw.byWilaya : [],
+      };
+    }
+  } catch {
+    // ignore malformed meta
+  }
+  return {
+    fileName: 'national-members-warehouse.xlsx',
+    lastSyncedAt: '',
+    fileSizeBytes: fs.existsSync(warehouseFile) ? fs.statSync(warehouseFile).size : 0,
+    totalMembers: 0,
+    activeMembers: 0,
+    totalWilayas: 96,
+    populatedWilayas: 0,
+    byWilaya: [],
+  };
+}
+
+export async function buildWilayaMembersWorkbookBuffer(params: {
+  wilaya: ExcelWilayaRecord;
+  head?: ExcelWilayaHeadLite;
+  members: ExcelRosterRecord[];
+  claims: ExcelClaimRecord[];
+  enrollments: ExcelEnrollmentRecord[];
+}): Promise<Buffer> {
+  const { wilaya, head, members, claims, enrollments } = params;
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = `MUTNATEC Wilaya ${wilaya.code}`;
+  workbook.created = new Date();
+
+  const summarySheet = workbook.addWorksheet('بطاقة المركز الولائي');
+  summarySheet.views = [{ rightToLeft: true }];
+  summarySheet.columns = [
+    { key: 'label', width: 30 },
+    { key: 'value', width: 44 },
+  ];
+  const header = summarySheet.addRow([
+    `قاعدة بيانات التعاضدية الولائية — ${wilaya.wilayaName} (${wilaya.code})`,
+    '',
+  ]);
+  header.font = { bold: true, size: 12, color: { argb: 'FF1E3A8A' } };
+  summarySheet.addRow(['رمز الولاية / الفرع', wilaya.code]);
+  summarySheet.addRow(['الولاية', safeExcelCell(wilaya.wilayaName)]);
+  summarySheet.addRow(['تسمية المركز الولائي', safeExcelCell(wilaya.officeName)]);
+  summarySheet.addRow([
+    'رئيس المركز الولائي',
+    safeExcelCell(head?.fullName || wilaya.representativeName || ''),
+  ]);
+  summarySheet.addRow(['الهاتف', safeExcelCell(head?.phone || wilaya.phone || '')]);
+  summarySheet.addRow(['البريد الإلكتروني', safeExcelCell(head?.email || '')]);
+  summarySheet.addRow(['العنوان', safeExcelCell(wilaya.address || '')]);
+  summarySheet.addRow(['إجمالي المنخرطين بالولاية', members.length]);
+  summarySheet.addRow([
+    'المنخرطون النشطون',
+    members.filter((m) => m.status === 'نشط').length,
+  ]);
+  summarySheet.addRow(['ملفات المرض بالولاية', claims.length]);
+  summarySheet.addRow(['طلبات الانخراط الفردي بالولاية', enrollments.length]);
+  summarySheet.addRow([
+    'تاريخ التصدير',
+    new Date().toISOString().slice(0, 19).replace('T', ' '),
+  ]);
+
+  const claimsStatsByMember = new Map<
+    string,
+    { count: number; approvedAmount: number }
+  >();
+  for (const c of claims) {
+    const key = c.membershipNumber || c.ownerId;
+    const prev = claimsStatsByMember.get(key) || { count: 0, approvedAmount: 0 };
+    prev.count += 1;
+    prev.approvedAmount += Number(c.approvedAmount) || 0;
+    claimsStatsByMember.set(key, prev);
+  }
+
+  const memberRows = members.map((m) => {
+    const st = claimsStatsByMember.get(m.membershipNumber) || {
+      count: 0,
+      approvedAmount: 0,
+    };
+    return {
+      wilayaCode: wilaya.code,
+      city: m.city || wilaya.wilayaName,
+      municipality: m.municipality || m.city || '',
+      membershipNumber: m.membershipNumber,
+      fullName: m.fullName,
+      nationalId: m.nationalId,
+      gender: m.gender || 'ذكر',
+      seniorityYears: Number(m.seniorityYears) || 0,
+      enrollmentYear: m.enrollmentYear || '2026',
+      email: m.email || '',
+      phone: m.phone || '',
+      sector: m.sector || '',
+      institution: m.institution || '',
+      rib: m.rib || '',
+      coveragePlan: m.coveragePlan || 'التغطية التكميلية+',
+      annualCeiling: Number(m.annualCeiling) || 0,
+      status: m.status || 'نشط',
+      claimsCount: st.count,
+      approvedAmount: st.approvedAmount,
+      notes: m.notes || '',
+    };
+  });
+
+  styleTableSheet(
+    workbook.addWorksheet('منخرطو الولاية'),
+    WAREHOUSE_MEMBER_COLUMNS,
+    memberRows as unknown as Array<Record<string, unknown>>
+  );
+
+  styleTableSheet(
+    workbook.addWorksheet('ملفات المرض بالولاية'),
+    [
+      { header: 'المرجع', key: 'referenceCode', width: 22 },
+      { header: 'رقم الانخراط', key: 'membershipNumber', width: 18 },
+      { header: 'المنخرط', key: 'memberName', width: 24 },
+      { header: 'المستفيد', key: 'beneficiaryName', width: 24 },
+      { header: 'نوع الأداء', key: 'careType', width: 26 },
+      { header: 'تاريخ العلاج', key: 'careDate', width: 14 },
+      { header: 'المبلغ المصرح به (د.ج)', key: 'totalAmount', width: 18, numFmt: '#,##0.00' },
+      { header: 'المبلغ المعتمد (د.ج)', key: 'approvedAmount', width: 18, numFmt: '#,##0.00' },
+      { header: 'الوضعية', key: 'status', width: 16 },
+    ],
+    claims as unknown as Array<Record<string, unknown>>
+  );
+
+  styleTableSheet(
+    workbook.addWorksheet('طلبات الانخراط بالولاية'),
+    [
+      { header: 'رقم التتبع', key: 'trackingCode', width: 18 },
+      { header: 'الاسم الكامل', key: 'fullName', width: 26 },
+      { header: 'رقم التعريف الوطني', key: 'nationalId', width: 20 },
+      { header: 'الهاتف', key: 'phone', width: 16 },
+      { header: 'البلدية', key: 'municipality', width: 18 },
+      { header: 'المؤسسة', key: 'workplace', width: 24 },
+      { header: 'الحالة', key: 'status', width: 20 },
+      { header: 'رقم الانخراط الممنوح', key: 'assignedMembershipNumber', width: 18 },
+    ],
+    enrollments as unknown as Array<Record<string, unknown>>
+  );
+
+  const arrayBuffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+export async function parseWarehouseOrWilayaMembersExcel(
+  buffer: Buffer,
+  validators: {
+    safeIdRegex: RegExp;
+    validPlans: Set<string>;
+    validStatuses: Set<string>;
+  },
+  preferredWilayaPrefix?: string
+): Promise<Array<ExcelRosterRecord & { wilayaCodeHint?: string }>> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+
+  const candidateSheets: ExcelJS.Worksheet[] = [];
+  const exactWilayaSheet = workbook.getWorksheet('منخرطو الولاية');
+  if (exactWilayaSheet) candidateSheets.push(exactWilayaSheet);
+
+  if (preferredWilayaPrefix) {
+    const matchingTab = workbook.worksheets.find((ws) =>
+      ws.name.startsWith(`${preferredWilayaPrefix}-`)
+    );
+    if (matchingTab && !candidateSheets.includes(matchingTab)) {
+      candidateSheets.push(matchingTab);
+    }
+  }
+
+  const nationalSheet =
+    workbook.getWorksheet('المخزن الوطني للمنخرطين') ||
+    workbook.getWorksheet('قاعدة بيانات المنخرطين');
+  if (nationalSheet && !candidateSheets.includes(nationalSheet)) {
+    candidateSheets.push(nationalSheet);
+  }
+
+  if (candidateSheets.length === 0) {
+    for (const ws of workbook.worksheets) {
+      const firstRowTexts: string[] = [];
+      ws.getRow(1).eachCell((c) => firstRowTexts.push(readCellText(c.value)));
+      if (
+        firstRowTexts.includes('رقم الانخراط') ||
+        firstRowTexts.includes('membershipNumber')
+      ) {
+        candidateSheets.push(ws);
+      }
+    }
+  }
+
+  const byMembership = new Map<
+    string,
+    ExcelRosterRecord & { wilayaCodeHint?: string }
+  >();
+
+  for (const sheet of candidateSheets) {
+    const headerMap = new Map<string, number>();
+    sheet.getRow(1).eachCell((cell, colNumber) => {
+      const key = readCellText(cell.value);
+      if (key) headerMap.set(key, colNumber);
+    });
+
+    const getCol = (row: ExcelJS.Row, ...names: string[]) => {
+      for (const n of names) {
+        const idx = headerMap.get(n);
+        if (idx) return readCellText(row.getCell(idx).value);
+      }
+      return '';
+    };
+
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const membershipNumber = getCol(row, 'رقم الانخراط', 'membershipNumber');
+      const fullName = getCol(row, 'الاسم واللقب', 'fullName').slice(0, 120);
+      const nationalId = getCol(
+        row,
+        'رقم التعريف الوطني (NIN)',
+        'رقم التعريف (NIN/ID)',
+        'رقم التعريف الوطني',
+        'nationalId'
+      ).slice(0, 32);
+
+      if (
+        !validators.safeIdRegex.test(membershipNumber) ||
+        membershipNumber.length < 4 ||
+        fullName.length < 2 ||
+        !validators.safeIdRegex.test(nationalId)
+      ) {
+        return;
+      }
+
+      const accessCode = getCol(row, 'رمز الدخول', 'accessCode').slice(0, 64);
+      const plan = getCol(row, 'صيغة التغطية', 'coveragePlan');
+      const status = getCol(row, 'الوضعية', 'status');
+      const rawCeiling = Number(
+        getCol(row, 'السقف السنوي (د.ج)', 'annualCeiling').replace(/,/g, '')
+      );
+      const rawGender = getCol(row, 'الجنس', 'gender');
+      const gender = rawGender === 'أنثى' ? 'أنثى' : 'ذكر';
+      const rawSeniority = Number(getCol(row, 'الأقدمية (سنوات)', 'seniorityYears'));
+      const seniorityYears =
+        Number.isFinite(rawSeniority) && rawSeniority >= 0 && rawSeniority <= 60
+          ? Math.round(rawSeniority)
+          : 5;
+      const rawEnrollmentYear = getCol(row, 'سنة الانخراط', 'enrollmentYear');
+      const enrollmentYear = /^\d{4}$/.test(rawEnrollmentYear)
+        ? rawEnrollmentYear
+        : '2026';
+      const wilayaCodeHint = getCol(row, 'رمز الولاية', 'wilayaCode').padStart(2, '0');
+      const city = getCol(row, 'الولاية', 'city').slice(0, 80);
+      const sector =
+        getCol(row, 'القطاع', 'sector').slice(0, 100) ||
+        'التربية الوطنية — التعليم الثانوي';
+      const municipality =
+        getCol(row, 'البلدية', 'municipality').slice(0, 80) || city;
+      const institution =
+        getCol(row, 'المؤسسة', 'institution').slice(0, 140) || sector;
+
+      byMembership.set(membershipNumber.toUpperCase(), {
+        membershipNumber,
+        accessCode,
+        fullName,
+        email:
+          getCol(row, 'البريد الإلكتروني', 'email').slice(0, 160) ||
+          'member@mutnatec.dz',
+        nationalId,
+        gender,
+        seniorityYears,
+        enrollmentYear,
+        sector,
+        city: city || 'الجزائر',
+        municipality,
+        institution,
+        phone: getCol(row, 'الهاتف', 'phone').slice(0, 30) || '0550000000',
+        rib:
+          getCol(row, 'الحساب البريدي/البنكي (CCP/RIB)', 'rib')
+            .replace(/\s+/g, '')
+            .slice(0, 34) || '00799999000000000000',
+        coveragePlan: validators.validPlans.has(plan)
+          ? plan
+          : 'التغطية التكميلية+',
+        annualCeiling: Math.max(
+          10000,
+          Math.min(
+            2000000,
+            Number.isFinite(rawCeiling) && rawCeiling > 0 ? rawCeiling : 250000
+          )
+        ),
+        status: validators.validStatuses.has(status) ? status : 'نشط',
+        notes: getCol(row, 'ملاحظات', 'notes').slice(0, 240),
+        wilayaCodeHint: /^\d{2}$/.test(wilayaCodeHint) ? wilayaCodeHint : undefined,
+      });
+    });
+  }
+
+  return Array.from(byMembership.values());
 }
 
 export async function parseExcelImportWorkbook(

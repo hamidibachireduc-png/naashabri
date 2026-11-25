@@ -28,6 +28,7 @@ import type {
   MemberProfile,
 } from '../types/mutual';
 import { BrandImage } from './BrandImage';
+import { ClaimsStatusPieChart } from './ClaimsStatusPieChart';
 import { StatusLabel } from './StatusLabel';
 
 export type WorkspaceSection =
@@ -377,7 +378,8 @@ export function DashboardOverview({
       </div>
 
       {/* Recharts Analytics Section */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-blue-50 border border-blue-100 shrink-0">
@@ -591,6 +593,11 @@ export function DashboardOverview({
             </div>
           </div>
         )}
+        </div>
+
+        <div className="lg:col-span-5">
+          <ClaimsStatusPieChart claims={claims} />
+        </div>
       </div>
 
       {/* Recent Claims Table */}

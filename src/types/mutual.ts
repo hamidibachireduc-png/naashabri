@@ -300,9 +300,51 @@ export interface WilayaHeadWorkspaceData {
     enrollmentsCount: number;
     pendingEnrollmentsCount: number;
   };
+  warehouseSync?: {
+    fileName: string;
+    lastSyncedAt: string;
+    nationalTotalMembers: number;
+    wilayaSyncedMembers: number;
+  };
   members: Array<Omit<InternalRosterMember, 'accessCode'>>;
   claims: MedicalClaim[];
   enrollments: IndividualEnrollment[];
+}
+
+export interface NationalWarehouseWilayaSummary {
+  code: string;
+  wilayaName: string;
+  officeName: string;
+  headName: string;
+  phone: string;
+  membersCount: number;
+  activeMembersCount: number;
+  claimsCount: number;
+  enrollmentsCount: number;
+  totalAnnualCeiling: number;
+  totalApprovedAmount: number;
+}
+
+export interface NationalWarehouseMeta {
+  fileName: string;
+  lastSyncedAt: string;
+  fileSizeBytes: number;
+  totalMembers: number;
+  activeMembers: number;
+  totalWilayas: number;
+  populatedWilayas: number;
+  byWilaya: NationalWarehouseWilayaSummary[];
+}
+
+export interface WilayaBackupRestoreResponse {
+  restored: {
+    membersCount: number;
+    claimsCount: number;
+    dependentsCount: number;
+    authorizationsCount: number;
+    enrollmentsCount: number;
+  };
+  workspace: WilayaHeadWorkspaceData;
 }
 
 export type EnrollmentStatus =

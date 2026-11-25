@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2,
+  Database,
+  Download,
+  FileSpreadsheet,
   FileText,
+  HardDriveDownload,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -9,8 +13,10 @@ import {
   MapPinned,
   Menu,
   Phone,
+  RefreshCw,
   Save,
   Search,
+  Upload,
   UserCheck,
   UserPlus,
   Users,
@@ -19,7 +25,11 @@ import {
 import { EMBLEM_IMAGE_PATH, formatCurrency } from '../data/mutualCatalog';
 import {
   changeWilayaHeadPassword,
+  exportWilayaBackupBlob,
+  exportWilayaExcelBlob,
   fetchWilayaHeadWorkspace,
+  importWilayaExcelDatabase,
+  restoreWilayaBackup,
   updateWilayaHeadProfile,
 } from '../lib/internalApi';
 import type {
@@ -30,6 +40,7 @@ import type {
 } from '../types/mutual';
 import { BrandImage } from './BrandImage';
 import { ClaimProcessingTimeline } from './ClaimProcessingTimeline';
+import { ClaimsStatusPieChart } from './ClaimsStatusPieChart';
 import { StatusLabel } from './StatusLabel';
 import { WilayaInteractiveMap } from './WilayaInteractiveMap';
 import { WilayaOfficesDirectory } from './WilayaOfficesDirectory';
@@ -46,6 +57,7 @@ type WilayaHeadSection =
   | 'members'
   | 'claims'
   | 'enrollments'
+  | 'backup'
   | 'network_map';
 
 export function WilayaHeadWorkspace({
@@ -89,6 +101,16 @@ export function WilayaHeadWorkspace({
   // Search & Timeline inspection
   const [memberSearch, setMemberSearch] = useState('');
   const [timelineClaim, setTimelineClaim] = useState<MedicalClaim | null>(null);
+
+  // Per-wilaya JSON Backup / Restore & Excel Export / Import
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [restoringBackup, setRestoringBackup] = useState(false);
+  const [backupRestoreMode, setBackupRestoreMode] = useState<'merge' | 'replace_wilaya'>('merge');
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [excelImportMode, setExcelImportMode] = useState<'merge' | 'replace_wilaya'>('merge');
+  const backupFileRef = useRef<HTMLInputElement | null>(null);
+  const excelFileRef = useRef<HTMLInputElement | null>(null);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -174,6 +196,150 @@ export function WilayaHeadWorkspace({
     }
   };
 
+  const syncFormFieldsFromWorkspace = (data: WilayaHeadWorkspaceData) => {
+    const acc = data.account;
+    setFullName(acc.fullName);
+    setTitle(acc.title);
+    setPhone(acc.phone);
+    setEmail(acc.email);
+    setOfficeName(acc.officeName);
+    setAccountInfo(acc.accountInfo);
+    setSocialUrl(acc.socialUrl);
+    setAddress(acc.address);
+    setGoogleMapsUrl(acc.googleMapsUrl);
+    setSecondaryMapsUrl(acc.secondaryMapsUrl || '');
+    setLatStr(typeof acc.lat === 'number' ? String(acc.lat) : '');
+    setLngStr(typeof acc.lng === 'number' ? String(acc.lng) : '');
+  };
+
+  const handleExportBackup = async () => {
+    setErrorMsg('');
+    setNoticeMsg('');
+    setExportingBackup(true);
+    try {
+      const blob = await exportWilayaBackupBlob(token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `MUTNATEC-Wilaya-${activeAccount.wilayaCode}-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNoticeMsg(
+        `تم حفظ وتنزيل النسخة الاحتياطية الكاملة لولاية ${activeAccount.wilayaName} (${activeAccount.wilayaCode}) بنجاح.`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'تعذر تصدير النسخة الاحتياطية للولاية.');
+    } finally {
+      setExportingBackup(false);
+    }
+  };
+
+  const handleRestoreBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      setErrorMsg('يرجى اختيار ملف نسخة احتياطية بصيغة JSON فقط.');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setErrorMsg('حجم ملف النسخة الاحتياطية يجب أن لا يتجاوز 4 ميغابايت.');
+      return;
+    }
+
+    setRestoringBackup(true);
+    setErrorMsg('');
+    setNoticeMsg('');
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error('ملف النسخة الاحتياطية غير صالح (صيغة JSON غير صحيحة).');
+      }
+
+      const res = await restoreWilayaBackup(token, parsed, backupRestoreMode);
+      setWorkspace(res.workspace);
+      syncFormFieldsFromWorkspace(res.workspace);
+      setNoticeMsg(
+        `تمت استعادة بيانات ولاية ${activeAccount.wilayaName} بنجاح: ${res.restored.membersCount} منخرط، ${res.restored.dependentsCount} ذوي حقوق، ${res.restored.claimsCount} ملف مرض، ${res.restored.authorizationsCount} تكفل، ${res.restored.enrollmentsCount} طلب انخراط.`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'تعذر استعادة النسخة الاحتياطية للولاية.');
+    } finally {
+      setRestoringBackup(false);
+    }
+  };
+
+  const handleExportWilayaExcel = async () => {
+    setErrorMsg('');
+    setNoticeMsg('');
+    setExportingExcel(true);
+    try {
+      const blob = await exportWilayaExcelBlob(token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `MUTNATEC-Wilaya-${activeAccount.wilayaCode}-Members.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNoticeMsg(
+        `تم تصدير قاعدة بيانات Excel الخاصة بمنخرطي ولاية ${activeAccount.wilayaName} (${activeAccount.wilayaCode}) بنجاح.`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'تعذر تحميل ملف Excel للولاية.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const handleImportWilayaExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      setErrorMsg('يرجى اختيار ملف Excel بصيغة (.xlsx) فقط.');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setErrorMsg('حجم ملف Excel يجب أن لا يتجاوز 4 ميغابايت.');
+      return;
+    }
+
+    setImportingExcel(true);
+    setErrorMsg('');
+    setNoticeMsg('');
+    try {
+      const fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('تعذر قراءة الملف من الجهاز.'));
+        reader.readAsDataURL(file);
+      });
+
+      const res = await importWilayaExcelDatabase(token, {
+        fileBase64,
+        mode: excelImportMode,
+      });
+      setWorkspace(res.workspace);
+      syncFormFieldsFromWorkspace(res.workspace);
+      setNoticeMsg(
+        `تمت استعادة وتحديث ${res.importedCount} منخرط لولاية ${activeAccount.wilayaName} ومزامنة المخزن الوطني تلقائياً.`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'تعذر استيراد ملف Excel للولاية.');
+    } finally {
+      setImportingExcel(false);
+    }
+  };
+
   const filteredMembers = useMemo(() => {
     const list = workspace?.members || [];
     const q = memberSearch.trim().toLowerCase();
@@ -238,6 +404,7 @@ export function WilayaHeadWorkspace({
     { id: 'members', label: 'منخرطو الولاية', icon: Users },
     { id: 'claims', label: 'ملفات المرض بالولاية', icon: FileText },
     { id: 'enrollments', label: 'طلبات الانخراط بالولاية', icon: UserPlus },
+    { id: 'backup', label: 'الحفظ والاستعادة والمخزن', icon: Database },
     { id: 'network_map', label: 'خريطة الرؤساء عبر الوطن (96)', icon: MapPinned },
   ];
 
@@ -505,6 +672,60 @@ export function WilayaHeadWorkspace({
                   />
                 </div>
               </div>
+
+              <ClaimsStatusPieChart
+                claims={workspace.claims}
+                title={`توزيع ملفات المرض في ولاية ${activeAccount.wilayaName} حسب الحالة`}
+                subtitle="توزيع ملفات الولاية بين: قيد الدراسة، مقبول، مرفوض"
+              />
+
+              <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+                    <h3 className="text-sm font-bold text-slate-900">
+                      حفظ واستعادة بيانات ولاية {activeAccount.wilayaName} ومزامنة المخزن الوطني
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    يمكنك تنزيل نسخة احتياطية كاملة للولاية أو تصدير سجل منخرطيها بصيغة Excel، مع
+                    مزامنة فورية لبيانات الولاية داخل المخزن الوطني الموحد (96 ولاية).
+                  </p>
+                  {workspace.warehouseSync?.lastSyncedAt && (
+                    <p className="text-[11px] font-mono-tabular text-slate-500">
+                      آخر مزامنة مع المخزن الوطني:{' '}
+                      {workspace.warehouseSync.lastSyncedAt.slice(0, 19).replace('T', ' ')}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleExportBackup}
+                    disabled={exportingBackup}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 cursor-pointer disabled:opacity-60"
+                  >
+                    <HardDriveDownload className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>{exportingBackup ? 'جاري الحفظ...' : 'نسخة احتياطية (JSON)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportWilayaExcel}
+                    disabled={exportingExcel}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 cursor-pointer disabled:opacity-60"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>{exportingExcel ? 'جاري التصدير...' : 'Excel الولاية (.xlsx)'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSection('backup')}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-slate-100 text-slate-800 border border-slate-300 rounded-lg hover:bg-slate-200 cursor-pointer"
+                  >
+                    <span>إدارة الاستعادة</span>
+                  </button>
+                </div>
+              </div>
             </div>
           ) : section === 'profile' ? (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -732,17 +953,26 @@ export function WilayaHeadWorkspace({
             </div>
           ) : section === 'members' && workspace ? (
             <div className="space-y-4">
-              <div className="bg-white border border-slate-200 rounded-xl p-4">
-                <div className="relative">
+              <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="relative flex-1">
                   <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="search"
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
-                    placeholder="ابحث في منخرطي الولاية بالاسم، رقم الانخراط، البلدية أو المؤسسة..."
+                    placeholder="ابحث في منخرطي الولاية بالاسم، رقم الانخراط، رقم التعريف الوطني، البلدية أو المؤسسة..."
                     className="w-full pr-9 pl-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleExportWilayaExcel}
+                  disabled={exportingExcel}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+                >
+                  <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />
+                  <span>{exportingExcel ? 'جاري التصدير...' : 'تصدير سجل الولاية (.xlsx)'}</span>
+                </button>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -755,32 +985,57 @@ export function WilayaHeadWorkspace({
                     <table className="w-full text-right border-collapse">
                       <thead>
                         <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
-                          <th className="py-3 px-4">رقم الانخراط</th>
-                          <th className="py-3 px-4">المنخرط</th>
+                          <th className="py-3 px-4">رقم الانخراط والهوية</th>
+                          <th className="py-3 px-4">المنخرط والرتبة</th>
                           <th className="py-3 px-4">البلدية والمؤسسة</th>
-                          <th className="py-3 px-4">الهاتف</th>
-                          <th className="py-3 px-4">الصيغة</th>
+                          <th className="py-3 px-4">الاتصال والحساب البنكي</th>
+                          <th className="py-3 px-4">الصيغة والسقف السنوي</th>
                           <th className="py-3 px-4">الوضعية</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
                         {filteredMembers.map((m) => (
-                          <tr key={m.membershipNumber} className="hover:bg-slate-50/80">
-                            <td className="py-3 px-4 font-mono-tabular text-xs font-semibold">
-                              {m.membershipNumber}
+                          <tr key={m.membershipNumber} className="hover:bg-slate-50/80 align-top">
+                            <td className="py-3 px-4 font-mono-tabular text-xs">
+                              <div className="font-semibold text-slate-900">
+                                {m.membershipNumber}
+                              </div>
+                              <div className="text-slate-500 mt-0.5">
+                                NIN: {m.nationalId || '—'}
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5">
+                                {m.gender || '—'} · أقدمية {m.seniorityYears} س
+                                {m.enrollmentYear ? ` (${m.enrollmentYear})` : ''}
+                              </div>
                             </td>
                             <td className="py-3 px-4">
                               <div className="font-semibold text-slate-900">{m.fullName}</div>
                               <div className="text-xs text-slate-500">{m.jobTitle || m.sector}</div>
+                              <div className="text-[11px] text-slate-500">{m.sector}</div>
                             </td>
                             <td className="py-3 px-4 text-xs">
-                              <div className="text-slate-900">{m.municipality || m.city}</div>
+                              <div className="text-slate-900 font-medium">
+                                {m.municipality || m.city}
+                              </div>
                               <div className="text-slate-500">{m.institution || '—'}</div>
                             </td>
-                            <td className="py-3 px-4 font-mono-tabular text-xs" dir="ltr">
-                              {m.phone}
+                            <td className="py-3 px-4 text-xs">
+                              <div className="font-mono-tabular text-slate-800" dir="ltr">
+                                {m.phone || '—'}
+                              </div>
+                              <div className="font-mono-tabular text-slate-500 mt-0.5" dir="ltr">
+                                {m.email || '—'}
+                              </div>
+                              <div className="font-mono-tabular text-[11px] text-slate-500 mt-0.5" dir="ltr">
+                                RIB: {m.rib || '—'}
+                              </div>
                             </td>
-                            <td className="py-3 px-4 text-xs">{m.coveragePlan}</td>
+                            <td className="py-3 px-4 text-xs">
+                              <div className="font-medium text-slate-900">{m.coveragePlan}</div>
+                              <div className="font-mono-tabular text-emerald-700 font-semibold mt-0.5">
+                                {formatCurrency(m.annualCeiling)}
+                              </div>
+                            </td>
                             <td className="py-3 px-4">
                               <StatusLabel status={m.status} />
                             </td>
@@ -892,6 +1147,220 @@ export function WilayaHeadWorkspace({
                   </table>
                 </div>
               )}
+            </div>
+          ) : section === 'backup' && workspace ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Card 1: Complete Wilaya JSON Backup & Restore */}
+                <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 bg-slate-100 rounded-lg text-slate-800 shrink-0">
+                      <HardDriveDownload className="w-5 h-5" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900">
+                        الحفظ والاستعادة الكاملة لبيانات الولاية (JSON)
+                      </h2>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        احفظ نسخة احتياطية كاملة تخص ولاية{' '}
+                        <strong>
+                          {activeAccount.wilayaName} ({activeAccount.wilayaCode})
+                        </strong>{' '}
+                        تشمل بيانات المقر، حساب الرئيس، المنخرطين، ذوي الحقوق، ملفات المرض، طلبات
+                        التكفل وطلبات الانخراط الفردي، مع إمكانية استعادتها في أي وقت.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                    <div>
+                      <p className="text-[11px] text-slate-500">المنخرطون</p>
+                      <p className="text-base font-bold font-mono-tabular text-slate-900">
+                        {workspace.stats.membersCount}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-500">ملفات المرض</p>
+                      <p className="text-base font-bold font-mono-tabular text-slate-900">
+                        {workspace.stats.claimsCount}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-500">المنخرطون النشطون</p>
+                      <p className="text-base font-bold font-mono-tabular text-emerald-700">
+                        {workspace.stats.activeMembersCount}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-500">طلبات الانخراط</p>
+                      <p className="text-base font-bold font-mono-tabular text-slate-900">
+                        {workspace.stats.enrollmentsCount}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      disabled={exportingBackup}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold bg-slate-900 text-white rounded-lg hover:bg-slate-800 cursor-pointer disabled:opacity-60"
+                    >
+                      <Download className="w-4 h-4" aria-hidden="true" />
+                      <span>
+                        {exportingBackup
+                          ? 'جاري إعداد النسخة الاحتياطية...'
+                          : `حفظ وتنزيل نسخة الولاية (${activeAccount.wilayaCode} — JSON)`}
+                      </span>
+                    </button>
+
+                    <div className="pt-3 border-t border-slate-100 space-y-3">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        وضع الاستعادة عند رفع ملف النسخة الاحتياطية:
+                      </label>
+                      <select
+                        value={backupRestoreMode}
+                        onChange={(e) =>
+                          setBackupRestoreMode(e.target.value as 'merge' | 'replace_wilaya')
+                        }
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+                      >
+                        <option value="merge">
+                          دمج وتحديث سجلات ولاية {activeAccount.wilayaName} (يحافظ على السجلات القائمة)
+                        </option>
+                        <option value="replace_wilaya">
+                          استبدال كامل بيانات ولاية {activeAccount.wilayaName} من النسخة
+                        </option>
+                      </select>
+
+                      <input
+                        ref={backupFileRef}
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={handleRestoreBackupFile}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => backupFileRef.current?.click()}
+                        disabled={restoringBackup}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold bg-blue-800 text-white rounded-lg hover:bg-blue-900 cursor-pointer disabled:opacity-60"
+                      >
+                        <Upload className="w-4 h-4" aria-hidden="true" />
+                        <span>
+                          {restoringBackup
+                            ? 'جاري استعادة بيانات الولاية...'
+                            : 'استعادة بيانات الولاية من ملف JSON'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    حماية الصلاحيات: يتحقق الخادم من رمز الولاية ({activeAccount.wilayaCode}) ويرفض
+                    استيراد أي ملف يخص ولاية أخرى، كما تبقى رموز الدخول السرية للمنخرطين وكلمات
+                    المرور محمية ولا تُصدر داخل ملفات النسخ الاحتياطي.
+                  </p>
+                </div>
+
+                {/* Card 2: Wilaya Excel Export/Import & National Warehouse Sync */}
+                <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 bg-emerald-50 rounded-lg text-emerald-700 shrink-0">
+                      <FileSpreadsheet className="w-5 h-5" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-slate-900">
+                        ملف Excel الخاص بالولاية والمخزن الوطني (.xlsx)
+                      </h2>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        تصدير واستيراد قاعدة بيانات منخرطي ولاية{' '}
+                        <strong>{activeAccount.wilayaName}</strong> بصيغة Excel، مع مزامنة تلقائية
+                        داخل ملف المخزن الوطني للمنخرطين حسب الولايات (96 ولاية).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-lg space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                        <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                        حالة المزامنة مع المخزن الوطني
+                      </span>
+                      <span className="font-mono-tabular text-[11px] px-2 py-0.5 bg-white border border-emerald-200 rounded text-emerald-800">
+                        متصل آلياً
+                      </span>
+                    </div>
+                    <p className="text-slate-700 font-mono-tabular">
+                      الملف الوطني: <strong>{workspace.warehouseSync?.fileName || 'national-members-warehouse.xlsx'}</strong>
+                    </p>
+                    {workspace.warehouseSync?.lastSyncedAt && (
+                      <p className="text-slate-600 font-mono-tabular">
+                        آخر تحديث:{' '}
+                        {workspace.warehouseSync.lastSyncedAt.slice(0, 19).replace('T', ' ')} · إجمالي
+                        منخرطي المخزن: {workspace.warehouseSync.nationalTotalMembers}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleExportWilayaExcel}
+                      disabled={exportingExcel}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 cursor-pointer disabled:opacity-60"
+                    >
+                      <Download className="w-4 h-4" aria-hidden="true" />
+                      <span>
+                        {exportingExcel
+                          ? 'جاري تجهيز ملف Excel...'
+                          : `تحميل سجل ولاية ${activeAccount.wilayaName} بصيغة Excel (.xlsx)`}
+                      </span>
+                    </button>
+
+                    <div className="pt-3 border-t border-slate-100 space-y-3">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        استعادة أو استيراد منخرطي الولاية من ملف Excel (.xlsx):
+                      </label>
+                      <select
+                        value={excelImportMode}
+                        onChange={(e) =>
+                          setExcelImportMode(e.target.value as 'merge' | 'replace_wilaya')
+                        }
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+                      >
+                        <option value="merge">
+                          دمج وتحديث منخرطي الولاية من ملف Excel
+                        </option>
+                        <option value="replace_wilaya">
+                          استبدال سجل منخرطي الولاية من ملف Excel
+                        </option>
+                      </select>
+
+                      <input
+                        ref={excelFileRef}
+                        type="file"
+                        accept=".xlsx"
+                        onChange={handleImportWilayaExcel}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => excelFileRef.current?.click()}
+                        disabled={importingExcel}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold bg-slate-800 text-white rounded-lg hover:bg-slate-900 cursor-pointer disabled:opacity-60"
+                      >
+                        <Upload className="w-4 h-4" aria-hidden="true" />
+                        <span>
+                          {importingExcel
+                            ? 'جاري قراءة واستعادة ملف Excel...'
+                            : 'رفع واستعادة من ملف Excel الولاية (.xlsx)'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : section === 'network_map' ? (
             <WilayaOfficesDirectory />

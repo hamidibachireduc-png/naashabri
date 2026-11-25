@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2,
   CheckCircle2,
+  Database,
   Download,
   FileSpreadsheet,
   RefreshCw,
+  Search,
   Upload,
   Users,
   Wallet,
@@ -22,11 +24,16 @@ import {
 import { formatCurrency } from '../data/mutualCatalog';
 import {
   downloadAdminExcelDatabase,
+  downloadAdminNationalWarehouseBlob,
+  downloadAdminWilayaExcelBlob,
+  fetchAdminNationalWarehouseMeta,
   fetchAdminReportsSummary,
   importAdminExcelDatabase,
+  importAdminNationalWarehouseExcel,
   syncAdminExcelDatabase,
+  syncAdminNationalWarehouse,
 } from '../lib/internalApi';
-import type { AdminReportsSummary } from '../types/mutual';
+import type { AdminReportsSummary, NationalWarehouseMeta } from '../types/mutual';
 
 interface AdminReportsAndExcelProps {
   adminToken: string;
@@ -34,22 +41,35 @@ interface AdminReportsAndExcelProps {
 
 export function AdminReportsAndExcel({ adminToken }: AdminReportsAndExcelProps) {
   const [reports, setReports] = useState<AdminReportsSummary | null>(null);
+  const [warehouseMeta, setWarehouseMeta] = useState<NationalWarehouseMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
+  const [warehouseSyncing, setWarehouseSyncing] = useState(false);
+  const [warehouseDownloading, setWarehouseDownloading] = useState(false);
+  const [warehouseImporting, setWarehouseImporting] = useState(false);
+  const [warehouseImportMode, setWarehouseImportMode] = useState<'merge' | 'replace'>('merge');
+  const [selectedWilayaCode, setSelectedWilayaCode] = useState('01');
+  const [wilayaDownloadingCode, setWilayaDownloadingCode] = useState('');
+  const [wilayaSearch, setWilayaSearch] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [noticeMsg, setNoticeMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const warehouseFileRef = useRef<HTMLInputElement | null>(null);
 
   const loadReports = useCallback(async () => {
     if (!adminToken) return;
     setLoading(true);
     setErrorMsg('');
     try {
-      const data = await fetchAdminReportsSummary(adminToken);
-      setReports(data);
+      const [reportsData, metaData] = await Promise.all([
+        fetchAdminReportsSummary(adminToken),
+        fetchAdminNationalWarehouseMeta(adminToken),
+      ]);
+      setReports(reportsData);
+      setWarehouseMeta(metaData);
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : 'تعذر تحميل التقارير الإدارية والمالية.'
@@ -62,6 +82,18 @@ export function AdminReportsAndExcel({ adminToken }: AdminReportsAndExcelProps) 
   useEffect(() => {
     void loadReports();
   }, [loadReports]);
+
+  const filteredWarehouseWilayas = useMemo(() => {
+    const list = warehouseMeta?.byWilaya || [];
+    const q = wilayaSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (w) =>
+        w.code.toLowerCase().includes(q) ||
+        w.wilayaName.toLowerCase().includes(q) ||
+        (w.headName || '').toLowerCase().includes(q)
+    );
+  }, [warehouseMeta?.byWilaya, wilayaSearch]);
 
   const handleManualSync = async () => {
     if (!adminToken) return;
@@ -148,6 +180,118 @@ export function AdminReportsAndExcel({ adminToken }: AdminReportsAndExcelProps) 
       );
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleSyncWarehouse = async () => {
+    if (!adminToken) return;
+    setWarehouseSyncing(true);
+    setErrorMsg('');
+    setNoticeMsg('');
+    try {
+      const meta = await syncAdminNationalWarehouse(adminToken);
+      setWarehouseMeta(meta);
+      await loadReports();
+      setNoticeMsg(
+        `تمت مزامنة ملف المخزن الوطني للمنخرطين (${meta.totalMembers} منخرط موزعين عبر ${meta.populatedWilayas} ولاية من أصل ${meta.totalWilayas}).`
+      );
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'تعذر مزامنة ملف المخزن الوطني للمنخرطين.'
+      );
+    } finally {
+      setWarehouseSyncing(false);
+    }
+  };
+
+  const handleDownloadNationalWarehouse = async () => {
+    if (!adminToken) return;
+    setWarehouseDownloading(true);
+    setErrorMsg('');
+    try {
+      const blob = await downloadAdminNationalWarehouseBlob(adminToken);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'MUTNATEC-National-Members-Warehouse-96Wilayas.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNoticeMsg(
+        'تم تحميل ملف المخزن الوطني الشامل (96 ورقة ولائية + الفهرس + القاعدة الوطنية الموحدة).'
+      );
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'تعذر تحميل ملف المخزن الوطني بصيغة Excel.'
+      );
+    } finally {
+      setWarehouseDownloading(false);
+    }
+  };
+
+  const handleDownloadSingleWilayaExcel = async (code: string) => {
+    if (!adminToken || !code) return;
+    setWilayaDownloadingCode(code);
+    setErrorMsg('');
+    try {
+      const blob = await downloadAdminWilayaExcelBlob(adminToken, code);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `MUTNATEC-Wilaya-${code}-Members.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNoticeMsg(`تم تحميل ملف قاعدة بيانات منخرطي الولاية رقم ${code} بصيغة Excel.`);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'تعذر تحميل ملف Excel للولاية المختارة.');
+    } finally {
+      setWilayaDownloadingCode('');
+    }
+  };
+
+  const handleWarehouseFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !adminToken) return;
+
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      setErrorMsg('يرجى اختيار ملف المخزن الوطني بصيغة (.xlsx) فقط.');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setErrorMsg('حجم ملف المخزن الوطني يجب أن لا يتجاوز 4 ميغابايت.');
+      return;
+    }
+
+    setWarehouseImporting(true);
+    setErrorMsg('');
+    setNoticeMsg('');
+    try {
+      const fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('تعذر قراءة الملف من الجهاز.'));
+        reader.readAsDataURL(file);
+      });
+
+      const res = await importAdminNationalWarehouseExcel(adminToken, {
+        fileBase64,
+        mode: warehouseImportMode,
+      });
+      setWarehouseMeta(res.meta);
+      await loadReports();
+      setNoticeMsg(
+        `تمت استعادة وتحديث ${res.importedCount} منخرط من ملف المخزن الوطني ومزامنة السجلات بنجاح.`
+      );
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'تعذر استيراد ملف المخزن الوطني للمنخرطين.'
+      );
+    } finally {
+      setWarehouseImporting(false);
     }
   };
 
@@ -278,6 +422,224 @@ export function AdminReportsAndExcel({ adminToken }: AdminReportsAndExcelProps) 
         {noticeMsg && (
           <div className="p-3 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg">
             {noticeMsg}
+          </div>
+        )}
+      </div>
+
+      {/* National Members Warehouse Excel (96 Wilayas Database) */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-800" aria-hidden="true" />
+              <h3 className="text-base font-bold text-slate-900">
+                المخزن الوطني لقاعدة بيانات المنخرطين بكل ولاية (Excel — 96 ولاية)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              ملف قاعدة بيانات وطني مستقل (<code className="font-mono-tabular">national-members-warehouse.xlsx</code>)
+              يتضمن فهرساً وطنياً، وورقة موحدة لكل المنخرطين بتفاصيلهم الكاملة، و96 ورقة عمل مخصصة
+              لكل ولاية/فرع، وتتزامن تلقائياً مع عمليات الحفظ والاستعادة الولائية.
+            </p>
+            {warehouseMeta && (
+              <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-slate-500 font-mono-tabular">
+                <span>
+                  آخر مزامنة:{' '}
+                  <strong className="text-slate-800">
+                    {warehouseMeta.lastSyncedAt
+                      ? warehouseMeta.lastSyncedAt.slice(0, 19).replace('T', ' ')
+                      : 'الآن'}
+                  </strong>
+                </span>
+                <span>
+                  الحجم:{' '}
+                  <strong className="text-slate-800">
+                    {Math.max(1, Math.round((warehouseMeta.fileSizeBytes || 0) / 1024))} KB
+                  </strong>
+                </span>
+                <span>
+                  إجمالي المنخرطين:{' '}
+                  <strong className="text-emerald-700">
+                    {warehouseMeta.totalMembers} ({warehouseMeta.activeMembers} نشط)
+                  </strong>
+                </span>
+                <span>
+                  الولايات النشطة بالمنخرطين:{' '}
+                  <strong className="text-blue-800">
+                    {warehouseMeta.populatedWilayas} / {warehouseMeta.totalWilayas}
+                  </strong>
+                </span>
+                <span>
+                  أوراق العمل: <strong className="text-slate-800">{2 + warehouseMeta.totalWilayas}</strong>
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSyncWarehouse}
+              disabled={warehouseSyncing}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-slate-100 text-slate-800 border border-slate-300 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-60 cursor-pointer whitespace-nowrap"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${warehouseSyncing ? 'animate-spin' : ''}`}
+                aria-hidden="true"
+              />
+              <span>{warehouseSyncing ? 'جاري المزامنة...' : 'مزامنة المخزن الوطني'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadNationalWarehouse}
+              disabled={warehouseDownloading}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-blue-800 text-white rounded-lg hover:bg-blue-900 transition-colors disabled:opacity-60 cursor-pointer whitespace-nowrap"
+            >
+              <Download className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>
+                {warehouseDownloading
+                  ? 'جاري التنزيل...'
+                  : 'تحميل المخزن الوطني (96 ولاية .xlsx)'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Warehouse Import + Quick Single-Wilaya Export */}
+        <div className="pt-4 border-t border-slate-100 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-700">استعادة من المخزن الوطني:</span>
+              <select
+                value={warehouseImportMode}
+                onChange={(e) => setWarehouseImportMode(e.target.value as 'merge' | 'replace')}
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-800"
+              >
+                <option value="merge">دمج وتحديث المنخرطين</option>
+                <option value="replace">استبدال سجل المنخرطين</option>
+              </select>
+            </div>
+            <div>
+              <input
+                ref={warehouseFileRef}
+                type="file"
+                accept=".xlsx"
+                onChange={handleWarehouseFileChange}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => warehouseFileRef.current?.click()}
+                disabled={warehouseImporting}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 cursor-pointer disabled:opacity-60"
+              >
+                <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{warehouseImporting ? 'جاري الاستيراد...' : 'رفع واستعادة (.xlsx)'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="flex flex-wrap items-center gap-2 text-xs flex-1 min-w-0">
+              <span className="font-semibold text-slate-700 whitespace-nowrap">
+                ملف ولاية محددة:
+              </span>
+              <select
+                value={selectedWilayaCode}
+                onChange={(e) => setSelectedWilayaCode(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-800 min-w-[160px]"
+              >
+                {(warehouseMeta?.byWilaya || []).map((w) => (
+                  <option key={w.code} value={w.code}>
+                    {w.code} — {w.wilayaName} ({w.membersCount})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleDownloadSingleWilayaExcel(selectedWilayaCode)}
+              disabled={Boolean(wilayaDownloadingCode)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 cursor-pointer disabled:opacity-60"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>
+                {wilayaDownloadingCode === selectedWilayaCode
+                  ? 'جاري التنزيل...'
+                  : 'تحميل Excel للولاية'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* 96-Wilaya Warehouse Directory Breakdown */}
+        {warehouseMeta && warehouseMeta.byWilaya.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h4 className="text-xs font-bold text-slate-800">
+                جدول المخزن الوطني حسب الولايات ({filteredWarehouseWilayas.length} من أصل{' '}
+                {warehouseMeta.byWilaya.length})
+              </h4>
+              <div className="relative w-full sm:w-72">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="search"
+                  value={wilayaSearch}
+                  onChange={(e) => setWilayaSearch(e.target.value)}
+                  placeholder="تصفية برقم الولاية، اسمها أو الرئيس..."
+                  className="w-full pr-8 pl-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-right border-collapse text-xs">
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-600 z-10">
+                  <tr>
+                    <th className="py-2 px-3">الرمز</th>
+                    <th className="py-2 px-3">الولاية / المركز</th>
+                    <th className="py-2 px-3">رئيس التعاضدية</th>
+                    <th className="py-2 px-3">المنخرطون</th>
+                    <th className="py-2 px-3">الملفات</th>
+                    <th className="py-2 px-3">طلبات الانخراط</th>
+                    <th className="py-2 px-3">تصدير</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredWarehouseWilayas.map((w) => (
+                    <tr key={w.code} className="hover:bg-slate-50/80">
+                      <td className="py-2 px-3 font-mono-tabular font-semibold text-slate-900">
+                        {w.code}
+                      </td>
+                      <td className="py-2 px-3 font-medium text-slate-900">{w.wilayaName}</td>
+                      <td className="py-2 px-3 text-slate-600">{w.headName || '—'}</td>
+                      <td className="py-2 px-3 font-mono-tabular">
+                        <span className="font-semibold text-slate-900">{w.membersCount}</span>
+                        <span className="text-emerald-700 mr-1">({w.activeMembersCount} نشط)</span>
+                      </td>
+                      <td className="py-2 px-3 font-mono-tabular text-slate-700">
+                        {w.claimsCount}
+                      </td>
+                      <td className="py-2 px-3 font-mono-tabular text-slate-700">
+                        {w.enrollmentsCount}
+                      </td>
+                      <td className="py-2 px-3">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadSingleWilayaExcel(w.code)}
+                          disabled={wilayaDownloadingCode === w.code}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 rounded hover:bg-emerald-100 cursor-pointer disabled:opacity-60"
+                        >
+                          <Download className="w-3 h-3" aria-hidden="true" />
+                          <span>.xlsx</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

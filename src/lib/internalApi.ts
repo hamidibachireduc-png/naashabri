@@ -13,8 +13,10 @@ import type {
   MedicalClaim,
   MemberGender,
   MemberProfile,
+  NationalWarehouseMeta,
   PublicMemberStats,
   PublicWilayaMapEntry,
+  WilayaBackupRestoreResponse,
   WilayaHeadAccount,
   WilayaHeadProvisionedCredential,
   WilayaHeadWorkspaceData,
@@ -34,13 +36,18 @@ import {
   staticDeleteAuthorization,
   staticDeleteClaim,
   staticDeleteDependent,
+  staticDownloadAdminWilayaExcelBlob,
   staticDownloadExcelBlob,
+  staticDownloadNationalWarehouseBlob,
+  staticExportWilayaBackup,
+  staticExportWilayaExcelBlob,
   staticFetchAdminEnrollments,
   staticFetchAdminRecords,
   staticFetchAdminReports,
   staticFetchAdminRoster,
   staticFetchAdminWilayaHeads,
   staticFetchMemberWorkspace,
+  staticFetchNationalWarehouseMeta,
   staticFetchPublicMemberStats,
   staticFetchPublicWilayaHeadsMap,
   staticFetchWilayaHeadWorkspace,
@@ -50,6 +57,7 @@ import {
   staticLoginAdmin,
   staticLoginMember,
   staticLoginWilayaHead,
+  staticRestoreWilayaBackup,
   staticReviewAdminAuth,
   staticReviewAdminClaim,
   staticReviewAdminEnrollment,
@@ -771,5 +779,190 @@ export async function bulkProvisionAdminWilayaHeads(
     },
     () => staticBulkProvisionWilayaHeads(adminToken, mode)
   );
+}
+
+// --- Wilaya Head Scoped Backup, Restore & Excel ---
+export async function exportWilayaBackupBlob(token: string): Promise<Blob> {
+  try {
+    const res = await fetch('/api/wilaya-head/backup/export', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      let msg = 'تعذر حفظ النسخة الاحتياطية للولاية.';
+      try {
+        const err = (await res.json()) as { error?: string };
+        if (err.error) msg = err.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return staticExportWilayaBackup(token);
+    }
+    return await res.blob();
+  } catch (err) {
+    if (err instanceof TypeError) {
+      return staticExportWilayaBackup(token);
+    }
+    throw err;
+  }
+}
+
+export async function restoreWilayaBackup(
+  token: string,
+  backup: unknown,
+  mode: 'merge' | 'replace_wilaya' = 'merge'
+): Promise<WilayaBackupRestoreResponse> {
+  return apiJson(
+    '/api/wilaya-head/backup/restore',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ backup, mode }),
+    },
+    () => staticRestoreWilayaBackup(token, backup, mode)
+  );
+}
+
+export async function exportWilayaExcelBlob(token: string): Promise<Blob> {
+  try {
+    const res = await fetch('/api/wilaya-head/excel/export', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      let msg = 'تعذر تصدير قاعدة بيانات Excel للولاية.';
+      try {
+        const err = (await res.json()) as { error?: string };
+        if (err.error) msg = err.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('spreadsheetml')) {
+      return staticExportWilayaExcelBlob(token);
+    }
+    return await res.blob();
+  } catch (err) {
+    if (err instanceof TypeError) {
+      return staticExportWilayaExcelBlob(token);
+    }
+    throw err;
+  }
+}
+
+export async function importWilayaExcelDatabase(
+  token: string,
+  payload: { fileBase64: string; mode: 'merge' | 'replace_wilaya' }
+): Promise<{ importedCount: number; workspace: WilayaHeadWorkspaceData }> {
+  return apiJson('/api/wilaya-head/excel/import', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+}
+
+// --- National Excel Members Warehouse (96 Wilayas) ---
+export async function fetchAdminNationalWarehouseMeta(
+  adminToken: string
+): Promise<NationalWarehouseMeta> {
+  return apiJson(
+    '/api/admin/national-warehouse/meta',
+    {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    },
+    () => staticFetchNationalWarehouseMeta(adminToken)
+  );
+}
+
+export async function syncAdminNationalWarehouse(
+  adminToken: string
+): Promise<NationalWarehouseMeta> {
+  return apiJson(
+    '/api/admin/national-warehouse/sync',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+    },
+    () => staticFetchNationalWarehouseMeta(adminToken)
+  );
+}
+
+export async function downloadAdminNationalWarehouseBlob(
+  adminToken: string
+): Promise<Blob> {
+  try {
+    const res = await fetch('/api/admin/national-warehouse/export', {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    if (!res.ok) {
+      let msg = 'تعذر تصدير ملف المخزن الوطني Excel.';
+      try {
+        const err = (await res.json()) as { error?: string };
+        if (err.error) msg = err.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('spreadsheetml')) {
+      return staticDownloadNationalWarehouseBlob(adminToken);
+    }
+    return await res.blob();
+  } catch (err) {
+    if (err instanceof TypeError) {
+      return staticDownloadNationalWarehouseBlob(adminToken);
+    }
+    throw err;
+  }
+}
+
+export async function downloadAdminWilayaExcelBlob(
+  adminToken: string,
+  code: string
+): Promise<Blob> {
+  try {
+    const res = await fetch(
+      `/api/admin/national-warehouse/wilaya/${encodeURIComponent(code)}/export`,
+      {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      }
+    );
+    if (!res.ok) {
+      let msg = 'تعذر تصدير ملف Excel للولاية.';
+      try {
+        const err = (await res.json()) as { error?: string };
+        if (err.error) msg = err.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('spreadsheetml')) {
+      return staticDownloadAdminWilayaExcelBlob(adminToken, code);
+    }
+    return await res.blob();
+  } catch (err) {
+    if (err instanceof TypeError) {
+      return staticDownloadAdminWilayaExcelBlob(adminToken, code);
+    }
+    throw err;
+  }
+}
+
+export async function importAdminNationalWarehouseExcel(
+  adminToken: string,
+  payload: { fileBase64: string; mode: 'merge' | 'replace' }
+): Promise<{ importedCount: number; meta: NationalWarehouseMeta }> {
+  return apiJson('/api/admin/national-warehouse/import', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify(payload),
+  });
 }
 
