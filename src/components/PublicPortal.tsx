@@ -251,7 +251,7 @@ export function PublicPortal({ onOpenLogin, signingIn, authError }: PublicPortal
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                المقرات الولائية (96)
+                خريطة الرؤساء والمقرات (96)
               </button>
               <button
                 type="button"
@@ -281,8 +281,16 @@ export function PublicPortal({ onOpenLogin, signingIn, authError }: PublicPortal
       <footer className="bg-white border-t border-slate-200 py-6">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <span>التعاضدية الوطنية لعمال التربية والثقافة (MUTNATEC) — الجزائر</span>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <span>جميع المعطيات محفوظة وفق معايير السرية الطبية</span>
+            <button
+              type="button"
+              onClick={() => onOpenLogin('wilaya_head')}
+              className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-900 font-semibold cursor-pointer whitespace-nowrap"
+            >
+              <Building2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>دخول رئيس ولائي</span>
+            </button>
             <button
               type="button"
               onClick={() => onOpenLogin('admin')}

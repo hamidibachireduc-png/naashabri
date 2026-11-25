@@ -224,13 +224,85 @@ export interface WilayaOffice {
   wilayaName: string;
   officeName: string;
   representativeName: string;
+  headTitle?: string;
   phone: string;
   accountInfo: string;
   socialUrl: string;
   address: string;
   googleMapsUrl: string;
   secondaryMapsUrl?: string;
+  lat?: number;
+  lng?: number;
   updatedAt: string;
+}
+
+export type WilayaHeadStatus = 'نشط' | 'معلق';
+
+export interface WilayaHeadAccount {
+  wilayaCode: string;
+  wilayaName: string;
+  username: string;
+  fullName: string;
+  title: string;
+  phone: string;
+  email: string;
+  officeName: string;
+  accountInfo: string;
+  socialUrl: string;
+  address: string;
+  googleMapsUrl: string;
+  secondaryMapsUrl?: string;
+  lat?: number;
+  lng?: number;
+  status: WilayaHeadStatus;
+  hasPassword: boolean;
+  updatedAt: string;
+}
+
+export interface WilayaHeadProvisionedCredential {
+  wilayaCode: string;
+  wilayaName: string;
+  username: string;
+  password: string;
+  fullName: string;
+}
+
+export interface PublicWilayaMapEntry {
+  code: string;
+  wilayaName: string;
+  officeName: string;
+  representativeName: string;
+  headTitle: string;
+  headUsername: string;
+  headStatus: WilayaHeadStatus;
+  hasActiveAccount: boolean;
+  phone: string;
+  email: string;
+  accountInfo: string;
+  socialUrl: string;
+  address: string;
+  googleMapsUrl: string;
+  secondaryMapsUrl?: string;
+  lat?: number;
+  lng?: number;
+  updatedAt: string;
+}
+
+export interface WilayaHeadWorkspaceData {
+  account: WilayaHeadAccount;
+  office: WilayaOffice;
+  stats: {
+    membersCount: number;
+    activeMembersCount: number;
+    claimsCount: number;
+    pendingClaimsCount: number;
+    totalApprovedAmount: number;
+    enrollmentsCount: number;
+    pendingEnrollmentsCount: number;
+  };
+  members: Array<Omit<InternalRosterMember, 'accessCode'>>;
+  claims: MedicalClaim[];
+  enrollments: IndividualEnrollment[];
 }
 
 export type EnrollmentStatus =

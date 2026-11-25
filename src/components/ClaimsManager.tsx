@@ -11,6 +11,7 @@ import {
   Edit3,
   Eye,
   FileText,
+  History,
   Plus,
   Search,
   Trash2,
@@ -40,6 +41,7 @@ import type {
   MedicalClaim,
   MemberProfile,
 } from '../types/mutual';
+import { ClaimProcessingTimeline } from './ClaimProcessingTimeline';
 import { StatusLabel } from './StatusLabel';
 
 interface ClaimsManagerProps {
@@ -70,6 +72,7 @@ export function ClaimsManager({
   const [showNewModal, setShowNewModal] = useState(openNewModalSignal > 0);
   const [selectedClaim, setSelectedClaim] = useState<MedicalClaim | null>(null);
   const [editingClaim, setEditingClaim] = useState<MedicalClaim | null>(null);
+  const [timelineClaimId, setTimelineClaimId] = useState<string>('');
 
   // New / Edit claim form state
   const [beneficiaryKey, setBeneficiaryKey] = useState('self');
@@ -137,6 +140,23 @@ export function ClaimsManager({
       return matchesStatus && matchesSearch;
     });
   }, [claims, statusFilter, searchQuery]);
+
+  const activeTimelineClaim = useMemo(() => {
+    if (claims.length === 0) return null;
+    if (timelineClaimId) {
+      const exact = claims.find((c) => c.id === timelineClaimId);
+      if (exact) return exact;
+    }
+    return filteredClaims[0] || claims[0] || null;
+  }, [claims, filteredClaims, timelineClaimId]);
+
+  const handleFocusTimeline = (claim: MedicalClaim) => {
+    setTimelineClaimId(claim.id);
+    const el = document.getElementById('claim-processing-timeline-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  };
 
   const openCreateModal = () => {
     setEditingClaim(null);
@@ -398,84 +418,153 @@ export function ClaimsManager({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredClaims.map((claim) => (
-                  <tr
-                    key={claim.id}
-                    className="hover:bg-slate-50/80 transition-colors"
-                  >
-                    <td className="py-3 px-4 font-mono-tabular text-xs font-medium text-slate-800 whitespace-nowrap">
-                      {claim.referenceCode}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-slate-900">{claim.beneficiaryName}</div>
-                      <div className="text-xs text-slate-500">{claim.beneficiaryRelation}</div>
-                    </td>
-                    <td className="py-3 px-4 text-slate-700 whitespace-nowrap">
-                      {claim.careType}
-                    </td>
-                    <td className="py-3 px-4 text-slate-700 max-w-[200px] truncate">
-                      {claim.providerName}
-                    </td>
-                    <td className="py-3 px-4 font-mono-tabular text-xs text-slate-600 whitespace-nowrap">
-                      {claim.careDate}
-                    </td>
-                    <td className="py-3 px-4 font-mono-tabular text-slate-900 text-left whitespace-nowrap">
-                      {formatCurrency(claim.totalAmount)}
-                    </td>
-                    <td className="py-3 px-4 font-mono-tabular text-left whitespace-nowrap">
-                      {claim.approvedAmount > 0 ? (
-                        <span className="font-semibold text-emerald-700">
-                          {formatCurrency(claim.approvedAmount)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">
-                          ~{formatCurrency(claim.estimatedReimbursement)}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <StatusLabel status={claim.status} />
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedClaim(claim)}
-                          title="معاينة التفاصيل"
-                          className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {(claim.status === 'قيد الدراسة' ||
-                          claim.status === 'وثائق ناقصة') && (
+                {filteredClaims.map((claim) => {
+                  const isTimelineSelected = activeTimelineClaim?.id === claim.id;
+                  return (
+                    <tr
+                      key={claim.id}
+                      onClick={() => setTimelineClaimId(claim.id)}
+                      className={`transition-colors cursor-pointer ${
+                        isTimelineSelected
+                          ? 'bg-blue-50/50 hover:bg-blue-50/70'
+                          : 'hover:bg-slate-50/80'
+                      }`}
+                    >
+                      <td className="py-3 px-4 font-mono-tabular text-xs font-medium text-slate-800 whitespace-nowrap">
+                        {claim.referenceCode}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-medium text-slate-900">{claim.beneficiaryName}</div>
+                        <div className="text-xs text-slate-500">{claim.beneficiaryRelation}</div>
+                      </td>
+                      <td className="py-3 px-4 text-slate-700 whitespace-nowrap">
+                        {claim.careType}
+                      </td>
+                      <td className="py-3 px-4 text-slate-700 max-w-[200px] truncate">
+                        {claim.providerName}
+                      </td>
+                      <td className="py-3 px-4 font-mono-tabular text-xs text-slate-600 whitespace-nowrap">
+                        {claim.careDate}
+                      </td>
+                      <td className="py-3 px-4 font-mono-tabular text-slate-900 text-left whitespace-nowrap">
+                        {formatCurrency(claim.totalAmount)}
+                      </td>
+                      <td className="py-3 px-4 font-mono-tabular text-left whitespace-nowrap">
+                        {claim.approvedAmount > 0 ? (
+                          <span className="font-semibold text-emerald-700">
+                            {formatCurrency(claim.approvedAmount)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">
+                            ~{formatCurrency(claim.estimatedReimbursement)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <StatusLabel status={claim.status} />
+                      </td>
+                      <td
+                        className="py-3 px-4 whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => openEditModal(claim)}
-                            title="تعديل أو استكمال الملف"
-                            className="p-1.5 text-slate-500 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                            onClick={() => handleFocusTimeline(claim)}
+                            title="مسار معالجة الملف"
+                            className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                              isTimelineSelected
+                                ? 'bg-blue-800 text-white'
+                                : 'text-blue-800 bg-blue-50 hover:bg-blue-100'
+                            }`}
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <History className="w-3.5 h-3.5" />
+                            <span>مسار الملف</span>
                           </button>
-                        )}
-                        {claim.status === 'قيد الدراسة' && (
                           <button
                             type="button"
-                            onClick={() => handleDeleteClaim(claim)}
-                            title="سحب الطلب"
-                            className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                            onClick={() => setSelectedClaim(claim)}
+                            title="معاينة التفاصيل"
+                            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Eye className="w-4 h-4" />
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {(claim.status === 'قيد الدراسة' ||
+                            claim.status === 'وثائق ناقصة') && (
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(claim)}
+                              title="تعديل أو استكمال الملف"
+                              className="p-1.5 text-slate-500 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {claim.status === 'قيد الدراسة' && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteClaim(claim)}
+                              title="سحب الطلب"
+                              className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* Inline Claim Processing Timeline */}
+      {activeTimelineClaim && (
+        <section
+          id="claim-processing-timeline-section"
+          className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 space-y-5"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-800 border border-blue-200 flex items-center justify-center shrink-0">
+                <History className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">مسار معالجة الملف</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  تتبع الخطوات التي يمر بها الملف من وقت إيداعه حتى تسوية وصرف التعويض المالي
+                </p>
+              </div>
+            </div>
+
+            <div className="w-full md:w-80">
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                اختر الملف لعرض مساره:
+              </label>
+              <select
+                value={activeTimelineClaim.id}
+                onChange={(e) => setTimelineClaimId(e.target.value)}
+                className="w-full px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700 focus:bg-white"
+              >
+                {claims.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.referenceCode} — {c.careType} ({c.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <ClaimProcessingTimeline
+            claim={activeTimelineClaim}
+            memberRib={member.rib}
+            onEditIncomplete={openEditModal}
+          />
+        </section>
+      )}
 
       {/* Create / Edit Claim Modal */}
       {showNewModal && (
@@ -659,11 +748,12 @@ export function ClaimsManager({
           aria-modal="true"
           aria-label="تفاصيل الملف"
         >
-          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
-                  تفاصيل الملف <span className="font-mono-tabular">{selectedClaim.referenceCode}</span>
+                  تفاصيل ومسار الملف{' '}
+                  <span className="font-mono-tabular">{selectedClaim.referenceCode}</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {selectedClaim.careType} · {selectedClaim.careDate}
@@ -678,13 +768,8 @@ export function ClaimsManager({
               </button>
             </div>
 
-            <div className="p-6 space-y-5 text-sm">
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-500">الوضعية الحالية</span>
-                <StatusLabel status={selectedClaim.status} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
+            <div className="p-6 space-y-5 text-sm overflow-y-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
                 <div>
                   <p className="text-xs text-slate-500">المستفيد</p>
                   <p className="font-semibold text-slate-900 mt-0.5">
@@ -718,26 +803,18 @@ export function ClaimsManager({
                 </div>
               </div>
 
-              {selectedClaim.notes && (
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
-                  <p className="text-xs font-semibold text-slate-600 mb-1">ملاحظات المنخرط</p>
-                  <p className="text-xs text-slate-700 leading-relaxed">{selectedClaim.notes}</p>
-                </div>
-              )}
-
-              {selectedClaim.reviewerNote && (
-                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-xs font-semibold text-amber-900 mb-1">
-                    ملاحظة المراقبة الطبية والإدارية
-                  </p>
-                  <p className="text-xs text-amber-800 leading-relaxed">
-                    {selectedClaim.reviewerNote}
-                  </p>
-                </div>
-              )}
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 mb-3">مسار معالجة الملف</h4>
+                <ClaimProcessingTimeline
+                  claim={selectedClaim}
+                  memberRib={member.rib}
+                  onEditIncomplete={openEditModal}
+                  compact
+                />
+              </div>
             </div>
 
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
               {(selectedClaim.status === 'قيد الدراسة' ||
                 selectedClaim.status === 'وثائق ناقصة') && (
                 <button

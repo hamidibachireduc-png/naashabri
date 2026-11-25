@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Eye, EyeOff, FileKey2, Lock, LogIn, ShieldCheck, UserCheck, X } from 'lucide-react';
 import { EMBLEM_IMAGE_PATH } from '../data/mutualCatalog';
-import { loginAdminAccount, loginInternalMember } from '../lib/internalApi';
-import type { MemberProfile } from '../types/mutual';
+import {
+  loginAdminAccount,
+  loginInternalMember,
+  loginWilayaHeadAccount,
+} from '../lib/internalApi';
+import type { MemberProfile, WilayaHeadAccount } from '../types/mutual';
 import { BrandImage } from './BrandImage';
 
-export type LoginModalMode = 'internal' | 'google' | 'admin';
+export type LoginModalMode = 'internal' | 'google' | 'wilaya_head' | 'admin';
 
 interface InternalLoginModalProps {
   initialMode?: LoginModalMode;
@@ -13,6 +17,7 @@ interface InternalLoginModalProps {
   onGoogleSignIn: () => void;
   googleSigningIn: boolean;
   onInternalSuccess: (token: string, member: MemberProfile) => void;
+  onWilayaHeadSuccess: (token: string, account: WilayaHeadAccount) => void;
   onAdminSuccess: (token: string, username: string) => void;
 }
 
@@ -22,11 +27,15 @@ export function InternalLoginModal({
   onGoogleSignIn,
   googleSigningIn,
   onInternalSuccess,
+  onWilayaHeadSuccess,
   onAdminSuccess,
 }: InternalLoginModalProps) {
   const [mode, setMode] = useState<LoginModalMode>(initialMode);
   const [membershipNumber, setMembershipNumber] = useState('');
   const [accessCode, setAccessCode] = useState('');
+  const [headUsername, setHeadUsername] = useState('');
+  const [headPassword, setHeadPassword] = useState('');
+  const [showHeadPassword, setShowHeadPassword] = useState(false);
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminPassword, setShowAdminPassword] = useState(false);
@@ -45,6 +54,23 @@ export function InternalLoginModal({
     } catch (err) {
       setErrorMsg(
         err instanceof Error ? err.message : 'تعذر تسجيل الدخول بالملف الداخلي.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleWilayaHeadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setLoading(true);
+    try {
+      const res = await loginWilayaHeadAccount(headUsername.trim(), headPassword.trim());
+      onWilayaHeadSuccess(res.token, res.account);
+      onClose();
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'تعذر التحقق من بيانات رئيس التعاضدية الولائية.'
       );
     } finally {
       setLoading(false);
@@ -85,7 +111,11 @@ export function InternalLoginModal({
               className="w-9 h-9 rounded-full object-contain border border-slate-200 shrink-0"
             />
             <h2 className="text-base font-bold text-slate-900">
-              {mode === 'admin' ? 'دخول مدير البوابة' : 'دخول فضاء المنخرط'}
+              {mode === 'admin'
+                ? 'دخول مدير البوابة'
+                : mode === 'wilaya_head'
+                ? 'دخول رئيس التعاضدية الولائية'
+                : 'دخول فضاء المنخرط'}
             </h2>
           </div>
           <button
@@ -99,14 +129,14 @@ export function InternalLoginModal({
         </div>
 
         <div className="p-6 space-y-5">
-          <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 bg-slate-100 rounded-lg">
             <button
               type="button"
               onClick={() => {
                 setMode('internal');
                 setErrorMsg('');
               }}
-              className={`py-2 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`py-2 px-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 mode === 'internal'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -120,7 +150,7 @@ export function InternalLoginModal({
                 setMode('google');
                 setErrorMsg('');
               }}
-              className={`py-2 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`py-2 px-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 mode === 'google'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -131,10 +161,24 @@ export function InternalLoginModal({
             <button
               type="button"
               onClick={() => {
+                setMode('wilaya_head');
+                setErrorMsg('');
+              }}
+              className={`py-2 px-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                mode === 'wilaya_head'
+                  ? 'bg-white text-emerald-800 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              رئيس ولائي
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 setMode('admin');
                 setErrorMsg('');
               }}
-              className={`py-2 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`py-2 px-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 mode === 'admin'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -243,6 +287,92 @@ export function InternalLoginModal({
                 </span>
               </button>
             </div>
+          )}
+
+          {mode === 'wilaya_head' && (
+            <form onSubmit={handleWilayaHeadSubmit} className="space-y-4">
+              {errorMsg && (
+                <div className="p-3 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                  {errorMsg}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  اسم مستخدم الرئيس الولائي أو رمز الولاية
+                </label>
+                <div className="relative">
+                  <UserCheck
+                    className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="text"
+                    required
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={headUsername}
+                    onChange={(e) => setHeadUsername(e.target.value)}
+                    placeholder="مثال: head16 أو 16"
+                    dir="ltr"
+                    className="w-full pr-9 pl-3 py-2.5 text-sm font-mono-tabular bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 text-right"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  كلمة المرور
+                </label>
+                <div className="relative">
+                  <Lock
+                    className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    aria-hidden="true"
+                  />
+                  <input
+                    type={showHeadPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={headPassword}
+                    onChange={(e) => setHeadPassword(e.target.value)}
+                    placeholder="••••••••"
+                    dir="ltr"
+                    className="w-full pr-9 pl-10 py-2.5 text-sm font-mono-tabular bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 text-right"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowHeadPassword((v) => !v)}
+                    aria-label={showHeadPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showHeadPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg text-xs text-slate-700 space-y-1">
+                <p className="font-semibold text-emerald-900">
+                  فضاء رئيس التعاضدية الولائية (96 ولاية / فرع)
+                </p>
+                <p>
+                  يتيح تحديث بيانات المقر والممثل الولائي، تحديد الموقع على الخريطة التفاعلية، ومتابعة منخرطي الولاية.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 disabled:opacity-60 cursor-pointer"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>{loading ? 'جاري التحقق...' : 'دخول رئيس التعاضدية الولائية'}</span>
+              </button>
+            </form>
           )}
 
           {mode === 'admin' && (

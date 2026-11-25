@@ -19,6 +19,7 @@ const DATA_DIR = path.resolve(ROOT_DIR, 'data');
 const ROSTER_FILE = path.join(DATA_DIR, 'internal-members.json');
 const RECORDS_FILE = path.join(DATA_DIR, 'internal-records.json');
 const WILAYAS_FILE = path.join(DATA_DIR, 'wilaya-offices.json');
+const WILAYA_HEADS_FILE = path.join(DATA_DIR, 'wilaya-heads.json');
 const ENROLLMENTS_FILE = path.join(DATA_DIR, 'enrollments.json');
 
 const DEFAULT_ADMIN_USER = 'habrinaas';
@@ -158,12 +159,28 @@ interface WilayaOfficeRecord {
   wilayaName: string;
   officeName: string;
   representativeName: string;
+  headTitle?: string;
   phone: string;
   accountInfo: string;
   socialUrl: string;
   address: string;
   googleMapsUrl: string;
   secondaryMapsUrl?: string;
+  lat?: number;
+  lng?: number;
+  updatedAt: string;
+}
+
+interface WilayaHeadRecord {
+  wilayaCode: string;
+  username: string;
+  fullName: string;
+  title: string;
+  phone: string;
+  email: string;
+  status: 'نشط' | 'معلق';
+  passwordSalt: string;
+  passwordHash: string;
   updatedAt: string;
 }
 
@@ -518,6 +535,66 @@ function sanitizeWebUrl(raw: unknown): { ok: boolean; value: string } {
   }
 }
 
+function parseOptionalCoord(val: unknown, min: number, max: number): number | undefined {
+  if (val === undefined || val === null || val === '') return undefined;
+  const num = Number(val);
+  if (!Number.isFinite(num) || num < min || num > max) return undefined;
+  return Math.round(num * 1000000) / 1000000;
+}
+
+function extractCoordsFromText(text: string): { lat: number; lng: number } | undefined {
+  const patterns = [
+    /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+    /[?&](?:q|ll|destination)=(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const lat = parseOptionalCoord(m[1], -90, 90);
+      const lng = parseOptionalCoord(m[2], -180, 180);
+      if (lat !== undefined && lng !== undefined) return { lat, lng };
+    }
+  }
+  return undefined;
+}
+
+const ALLOWED_MAPS_HOSTS = new Set([
+  'maps.app.goo.gl',
+  'goo.gl',
+  'www.google.com',
+  'maps.google.com',
+  'google.com',
+  'share.google',
+]);
+
+async function resolveMapsRedirectCoords(
+  rawUrl: string
+): Promise<{ lat: number; lng: number } | undefined> {
+  if (!rawUrl) return undefined;
+  const direct = extractCoordsFromText(rawUrl);
+  if (direct) return direct;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:' || !ALLOWED_MAPS_HOSTS.has(parsed.hostname.toLowerCase())) {
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const resp = await fetch(parsed.toString(), {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    const fromFinalUrl = extractCoordsFromText(resp.url || '');
+    if (fromFinalUrl) return fromFinalUrl;
+    const html = await resp.text().catch(() => '');
+    return extractCoordsFromText(html.slice(0, 12000));
+  } catch {
+    return undefined;
+  }
+}
+
 const SESSION_SECRET =
   process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 16
     ? process.env.SESSION_SECRET
@@ -539,6 +616,9 @@ function ensureDataFiles() {
   }
   if (!fs.existsSync(WILAYAS_FILE)) {
     fs.writeFileSync(WILAYAS_FILE, JSON.stringify(buildDefaultWilayaOffices(), null, 2), 'utf8');
+  }
+  if (!fs.existsSync(WILAYA_HEADS_FILE)) {
+    fs.writeFileSync(WILAYA_HEADS_FILE, '[]', 'utf8');
   }
   if (!fs.existsSync(ENROLLMENTS_FILE)) {
     fs.writeFileSync(ENROLLMENTS_FILE, '[]', 'utf8');
@@ -600,6 +680,8 @@ function readWilayaOffices(): WilayaOfficeRecord[] {
       const saved = byCode.get(base.code);
       if (!saved) return base;
       const hasUserEdits = Boolean(saved.updatedAt && saved.updatedAt !== '');
+      const savedLat = parseOptionalCoord(saved.lat, -90, 90);
+      const savedLng = parseOptionalCoord(saved.lng, -180, 180);
       return {
         code: base.code,
         wilayaName:
@@ -617,6 +699,8 @@ function readWilayaOffices(): WilayaOfficeRecord[] {
             : base.officeName,
         representativeName:
           typeof saved.representativeName === 'string' ? saved.representativeName.slice(0, 120) : '',
+        headTitle:
+          typeof saved.headTitle === 'string' ? saved.headTitle.slice(0, 120) : undefined,
         phone:
           typeof saved.phone === 'string' && saved.phone.trim()
             ? saved.phone.slice(0, 60)
@@ -637,6 +721,7 @@ function readWilayaOffices(): WilayaOfficeRecord[] {
         secondaryMapsUrl:
           sanitizeWebUrl(saved.secondaryMapsUrl).value ||
           (hasUserEdits ? '' : base.secondaryMapsUrl || ''),
+        ...(savedLat !== undefined && savedLng !== undefined ? { lat: savedLat, lng: savedLng } : {}),
         updatedAt: typeof saved.updatedAt === 'string' && saved.updatedAt ? saved.updatedAt : base.updatedAt,
       };
     });
@@ -649,6 +734,143 @@ function writeWilayaOffices(offices: WilayaOfficeRecord[]) {
   ensureDataFiles();
   fs.writeFileSync(WILAYAS_FILE, JSON.stringify(offices, null, 2), 'utf8');
   void triggerExcelSync();
+}
+
+function hashWilayaHeadPassword(password: string): { salt: string; hash: string } {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return { salt, hash };
+}
+
+function verifyWilayaHeadPassword(password: string, salt: string, hashHex: string): boolean {
+  if (!password || !salt || !hashHex) return false;
+  try {
+    const derived = crypto.scryptSync(password, salt, 64);
+    const expectedBuf = Buffer.from(hashHex, 'hex');
+    if (derived.length !== expectedBuf.length) return false;
+    return crypto.timingSafeEqual(derived, expectedBuf);
+  } catch {
+    return false;
+  }
+}
+
+function readWilayaHeads(): WilayaHeadRecord[] {
+  ensureDataFiles();
+  const offices = readWilayaOffices();
+  let parsedList: Partial<WilayaHeadRecord>[] = [];
+  try {
+    const raw = fs.readFileSync(WILAYA_HEADS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) parsedList = parsed as Partial<WilayaHeadRecord>[];
+  } catch {
+    parsedList = [];
+  }
+  const byCode = new Map<string, Partial<WilayaHeadRecord>>();
+  for (const row of parsedList) {
+    if (row && typeof row.wilayaCode === 'string' && isValidWilayaCode(row.wilayaCode)) {
+      byCode.set(row.wilayaCode, row);
+    }
+  }
+  return offices.map((office) => {
+    const saved = byCode.get(office.code);
+    return {
+      wilayaCode: office.code,
+      username:
+        typeof saved?.username === 'string' && saved.username.trim().length >= 3
+          ? saved.username.trim().toLowerCase()
+          : `head${office.code}`,
+      fullName:
+        typeof saved?.fullName === 'string'
+          ? saved.fullName.trim().slice(0, 120)
+          : office.representativeName || '',
+      title:
+        typeof saved?.title === 'string' && saved.title.trim()
+          ? saved.title.trim().slice(0, 120)
+          : office.headTitle || `رئيس التعاضدية الولائية — ${office.wilayaName}`,
+      phone:
+        typeof saved?.phone === 'string' && saved.phone.trim()
+          ? saved.phone.trim().slice(0, 60)
+          : office.phone || '',
+      email:
+        typeof saved?.email === 'string' ? saved.email.trim().slice(0, 160) : '',
+      status: saved?.status === 'معلق' ? 'معلق' : 'نشط',
+      passwordSalt: typeof saved?.passwordSalt === 'string' ? saved.passwordSalt : '',
+      passwordHash: typeof saved?.passwordHash === 'string' ? saved.passwordHash : '',
+      updatedAt: typeof saved?.updatedAt === 'string' ? saved.updatedAt : office.updatedAt || '',
+    };
+  });
+}
+
+function writeWilayaHeads(heads: WilayaHeadRecord[]) {
+  ensureDataFiles();
+  fs.writeFileSync(WILAYA_HEADS_FILE, JSON.stringify(heads, null, 2), 'utf8');
+}
+
+function sanitizeWilayaHeadForClient(head: WilayaHeadRecord, office: WilayaOfficeRecord) {
+  return {
+    wilayaCode: head.wilayaCode,
+    wilayaName: office.wilayaName,
+    username: head.username,
+    fullName: head.fullName || office.representativeName || '',
+    title: head.title || office.headTitle || `رئيس التعاضدية الولائية — ${office.wilayaName}`,
+    phone: head.phone || office.phone || '',
+    email: head.email || '',
+    officeName: office.officeName,
+    accountInfo: office.accountInfo,
+    socialUrl: office.socialUrl,
+    address: office.address,
+    googleMapsUrl: office.googleMapsUrl,
+    secondaryMapsUrl: office.secondaryMapsUrl || '',
+    lat: office.lat,
+    lng: office.lng,
+    status: head.status,
+    hasPassword: Boolean(head.passwordHash && head.passwordSalt),
+    updatedAt: head.updatedAt || office.updatedAt || '',
+  };
+}
+
+function buildPublicWilayaMapEntries() {
+  const offices = readWilayaOffices();
+  const heads = readWilayaHeads();
+  const headByCode = new Map(heads.map((h) => [h.wilayaCode, h]));
+  return offices.map((office) => {
+    const head = headByCode.get(office.code);
+    return {
+      code: office.code,
+      wilayaName: office.wilayaName,
+      officeName: office.officeName,
+      representativeName: head?.fullName || office.representativeName || '',
+      headTitle:
+        head?.title || office.headTitle || `رئيس التعاضدية الولائية — ${office.wilayaName}`,
+      headUsername: head?.username || `head${office.code}`,
+      headStatus: head?.status || 'نشط',
+      hasActiveAccount: Boolean(head?.passwordHash && head?.status === 'نشط'),
+      phone: head?.phone || office.phone || '',
+      email: head?.email || '',
+      accountInfo: office.accountInfo,
+      socialUrl: office.socialUrl,
+      address: office.address,
+      googleMapsUrl: office.googleMapsUrl,
+      secondaryMapsUrl: office.secondaryMapsUrl || '',
+      lat: office.lat,
+      lng: office.lng,
+      updatedAt: head?.updatedAt || office.updatedAt || '',
+    };
+  });
+}
+
+function isCityInWilayaScope(city: string, wilayaCode: string, wilayaName: string): boolean {
+  const cleanCity = city.trim();
+  if (!cleanCity) return false;
+  if (cleanCity === wilayaName) return true;
+  if (wilayaCode === '16' && cleanCity.startsWith('الجزائر')) return true;
+  if (
+    (wilayaCode === '70' || wilayaCode === '71' || wilayaCode === '72') &&
+    (cleanCity === wilayaName || cleanCity === 'الجزائر' || cleanCity === 'الجزائر العاصمة')
+  ) {
+    return true;
+  }
+  return cleanCity.includes(wilayaName);
 }
 
 function readEnrollments(): IndividualEnrollmentRecord[] {
@@ -684,7 +906,11 @@ function triggerExcelSync() {
   return syncExcelDatabaseWorkbook(DATA_DIR, getDatabaseSnapshot);
 }
 
-function signToken(payloadObj: { role: 'member' | 'admin'; sub: string; exp: number }): string {
+function signToken(payloadObj: {
+  role: 'member' | 'admin' | 'wilaya_head';
+  sub: string;
+  exp: number;
+}): string {
   const payload = Buffer.from(JSON.stringify(payloadObj)).toString('base64url');
   const sig = crypto
     .createHmac('sha256', SESSION_SECRET)
@@ -695,7 +921,7 @@ function signToken(payloadObj: { role: 'member' | 'admin'; sub: string; exp: num
 
 function verifyToken(
   token: string,
-  expectedRole: 'member' | 'admin'
+  expectedRole: 'member' | 'admin' | 'wilaya_head'
 ): string | null {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
@@ -835,6 +1061,10 @@ interface AuthedAdminRequest extends Request {
   adminUsername?: string;
 }
 
+interface AuthedWilayaHeadRequest extends Request {
+  wilayaCode?: string;
+}
+
 function requireInternalMember(
   req: AuthedInternalRequest,
   res: Response,
@@ -872,6 +1102,27 @@ function requireAdminSession(
     return;
   }
   req.adminUsername = adminUser;
+  next();
+}
+
+function requireWilayaHeadSession(
+  req: AuthedWilayaHeadRequest,
+  res: Response,
+  next: NextFunction
+) {
+  const token = extractBearer(req);
+  const wilayaCode = verifyToken(token, 'wilaya_head');
+  if (!wilayaCode || !isValidWilayaCode(wilayaCode)) {
+    res.status(401).json({ error: 'جلسة رئيس التعاضدية الولائية غير صالحة أو منتهية.' });
+    return;
+  }
+  const heads = readWilayaHeads();
+  const head = heads.find((h) => h.wilayaCode === wilayaCode);
+  if (!head || head.status !== 'نشط') {
+    res.status(403).json({ error: 'حساب رئيس التعاضدية الولائية معلق أو غير نشط.' });
+    return;
+  }
+  req.wilayaCode = wilayaCode;
   next();
 }
 
@@ -1832,6 +2083,473 @@ async function startServer() {
     }
   );
 
+  // --- Public Interactive Wilaya Heads Map ---
+  app.get('/api/public/wilaya-heads-map', (_req: Request, res: Response) => {
+    res.json({ entries: buildPublicWilayaMapEntries() });
+  });
+
+  // --- Wilaya Head Login & Scoped Self-Service Workspace ---
+  app.post('/api/wilaya-head/login', (req: Request, res: Response) => {
+    const body = req.body as { username?: unknown; password?: unknown };
+    const username =
+      typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password.trim() : '';
+
+    if (!username || !password) {
+      res.status(400).json({ error: 'يرجى إدخال اسم المستخدم والرقم السري للرئيس الولائي.' });
+      return;
+    }
+
+    const heads = readWilayaHeads();
+    const offices = readWilayaOffices();
+    const matched = heads.find(
+      (h) =>
+        h.username.toLowerCase() === username ||
+        h.wilayaCode === username.padStart(2, '0')
+    );
+
+    if (!matched || !matched.passwordHash || !matched.passwordSalt) {
+      res.status(401).json({
+        error: 'بيانات الدخول غير صحيحة أو لم يتم تفعيل كلمة المرور لهذا الحساب بعد.',
+      });
+      return;
+    }
+
+    if (!verifyWilayaHeadPassword(password, matched.passwordSalt, matched.passwordHash)) {
+      res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة.' });
+      return;
+    }
+
+    if (matched.status !== 'نشط') {
+      res.status(403).json({
+        error: 'تم تعليق حساب رئيس التعاضدية الولائية. يرجى مراجعة الإدارة المركزية.',
+      });
+      return;
+    }
+
+    const office = offices.find((o) => o.code === matched.wilayaCode)!;
+    const token = signToken({
+      role: 'wilaya_head',
+      sub: matched.wilayaCode,
+      exp: Date.now() + 1000 * 60 * 60 * 12,
+    });
+
+    res.json({
+      token,
+      account: sanitizeWilayaHeadForClient(matched, office),
+    });
+  });
+
+  app.get(
+    '/api/wilaya-head/me',
+    requireWilayaHeadSession,
+    (req: AuthedWilayaHeadRequest, res: Response) => {
+      const code = req.wilayaCode!;
+      const offices = readWilayaOffices();
+      const heads = readWilayaHeads();
+      const office = offices.find((o) => o.code === code)!;
+      const head = heads.find((h) => h.wilayaCode === code)!;
+
+      const roster = readRoster();
+      const scopedMembers = roster.filter((m) =>
+        isCityInWilayaScope(m.city, office.code, office.wilayaName)
+      );
+      const memberNums = new Set(scopedMembers.map((m) => m.membershipNumber));
+      const store = readRecords();
+      const scopedClaims = store.claims.filter((c) => memberNums.has(c.ownerId));
+      const scopedEnrollments = readEnrollments().filter((e) =>
+        isCityInWilayaScope(e.city, office.code, office.wilayaName)
+      );
+
+      const safeMembers = scopedMembers.map(({ accessCode: _omit, ...rest }) => rest);
+
+      res.json({
+        account: sanitizeWilayaHeadForClient(head, office),
+        office,
+        stats: {
+          membersCount: safeMembers.length,
+          activeMembersCount: safeMembers.filter((m) => m.status === 'نشط').length,
+          claimsCount: scopedClaims.length,
+          pendingClaimsCount: scopedClaims.filter(
+            (c) => c.status === 'قيد الدراسة' || c.status === 'وثائق ناقصة'
+          ).length,
+          totalApprovedAmount: scopedClaims.reduce(
+            (sum, c) => sum + (Number(c.approvedAmount) || 0),
+            0
+          ),
+          enrollmentsCount: scopedEnrollments.length,
+          pendingEnrollmentsCount: scopedEnrollments.filter(
+            (e) => e.status === 'جاري التدقيق والموافقة'
+          ).length,
+        },
+        members: safeMembers,
+        claims: scopedClaims,
+        enrollments: scopedEnrollments,
+      });
+    }
+  );
+
+  app.put(
+    '/api/wilaya-head/me',
+    requireWilayaHeadSession,
+    async (req: AuthedWilayaHeadRequest, res: Response) => {
+      const code = req.wilayaCode!;
+      const body = req.body as Record<string, unknown>;
+
+      const safeMaps = sanitizeWebUrl(body.googleMapsUrl);
+      if (!safeMaps.ok) {
+        res.status(400).json({
+          error: 'رابط خرائط قوقل غير صالح. يجب أن يبدأ بـ https:// أو http://',
+        });
+        return;
+      }
+      const safeSecMaps = sanitizeWebUrl(body.secondaryMapsUrl);
+      if (!safeSecMaps.ok) {
+        res.status(400).json({ error: 'رابط المقر الثاني غير صالح.' });
+        return;
+      }
+      const safeSocial = sanitizeWebUrl(body.socialUrl);
+      if (!safeSocial.ok) {
+        res.status(400).json({ error: 'رابط الحساب الرسمي غير صالح.' });
+        return;
+      }
+
+      const offices = readWilayaOffices();
+      const heads = readWilayaHeads();
+      const officeIdx = offices.findIndex((o) => o.code === code);
+      const headIdx = heads.findIndex((h) => h.wilayaCode === code);
+      if (officeIdx === -1 || headIdx === -1) {
+        res.status(404).json({ error: 'الحساب الولائي غير موجود.' });
+        return;
+      }
+
+      let lat = parseOptionalCoord(body.lat, -90, 90);
+      let lng = parseOptionalCoord(body.lng, -180, 180);
+      if ((lat === undefined || lng === undefined) && safeMaps.value) {
+        const resolved = await resolveMapsRedirectCoords(safeMaps.value);
+        if (resolved) {
+          lat = resolved.lat;
+          lng = resolved.lng;
+        }
+      }
+
+      const fullName =
+        typeof body.fullName === 'string'
+          ? body.fullName.trim().slice(0, 120)
+          : heads[headIdx].fullName;
+      const title =
+        typeof body.title === 'string' && body.title.trim()
+          ? body.title.trim().slice(0, 120)
+          : heads[headIdx].title;
+      const phone =
+        typeof body.phone === 'string'
+          ? body.phone.trim().slice(0, 60)
+          : heads[headIdx].phone;
+      const email =
+        typeof body.email === 'string'
+          ? body.email.trim().slice(0, 160)
+          : heads[headIdx].email;
+
+      const now = new Date().toISOString();
+      heads[headIdx] = {
+        ...heads[headIdx],
+        fullName,
+        title,
+        phone,
+        email,
+        updatedAt: now,
+      };
+      writeWilayaHeads(heads);
+
+      offices[officeIdx] = {
+        ...offices[officeIdx],
+        officeName:
+          typeof body.officeName === 'string'
+            ? body.officeName.trim().slice(0, 140)
+            : offices[officeIdx].officeName,
+        representativeName: fullName,
+        headTitle: title,
+        phone,
+        accountInfo:
+          typeof body.accountInfo === 'string'
+            ? body.accountInfo.trim().slice(0, 180)
+            : offices[officeIdx].accountInfo,
+        socialUrl: safeSocial.value,
+        address:
+          typeof body.address === 'string'
+            ? body.address.trim().slice(0, 220)
+            : offices[officeIdx].address,
+        googleMapsUrl: safeMaps.value,
+        secondaryMapsUrl: safeSecMaps.value,
+        ...(lat !== undefined && lng !== undefined
+          ? { lat, lng }
+          : { lat: offices[officeIdx].lat, lng: offices[officeIdx].lng }),
+        updatedAt: now,
+      };
+      writeWilayaOffices(offices);
+
+      res.json({
+        account: sanitizeWilayaHeadForClient(heads[headIdx], offices[officeIdx]),
+        office: offices[officeIdx],
+      });
+    }
+  );
+
+  app.patch(
+    '/api/wilaya-head/me/password',
+    requireWilayaHeadSession,
+    (req: AuthedWilayaHeadRequest, res: Response) => {
+      const code = req.wilayaCode!;
+      const body = req.body as { currentPassword?: unknown; newPassword?: unknown };
+      const currentPassword =
+        typeof body.currentPassword === 'string' ? body.currentPassword.trim() : '';
+      const newPassword =
+        typeof body.newPassword === 'string' ? body.newPassword.trim() : '';
+
+      if (!currentPassword || newPassword.length < 6 || newPassword.length > 72) {
+        res.status(400).json({
+          error: 'يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل.',
+        });
+        return;
+      }
+
+      const heads = readWilayaHeads();
+      const idx = heads.findIndex((h) => h.wilayaCode === code);
+      if (idx === -1) {
+        res.status(404).json({ error: 'الحساب غير موجود.' });
+        return;
+      }
+      if (
+        !verifyWilayaHeadPassword(
+          currentPassword,
+          heads[idx].passwordSalt,
+          heads[idx].passwordHash
+        )
+      ) {
+        res.status(401).json({ error: 'كلمة المرور الحالية غير صحيحة.' });
+        return;
+      }
+
+      const { salt, hash } = hashWilayaHeadPassword(newPassword);
+      heads[idx] = {
+        ...heads[idx],
+        passwordSalt: salt,
+        passwordHash: hash,
+        updatedAt: new Date().toISOString(),
+      };
+      writeWilayaHeads(heads);
+      res.json({ ok: true });
+    }
+  );
+
+  // --- Admin Wilaya Head Account Management ---
+  app.get('/api/admin/wilaya-heads', requireAdminSession, (_req: Request, res: Response) => {
+    const offices = readWilayaOffices();
+    const heads = readWilayaHeads();
+    const officeByCode = new Map(offices.map((o) => [o.code, o]));
+    const accounts = heads.map((h) => sanitizeWilayaHeadForClient(h, officeByCode.get(h.wilayaCode)!));
+    res.json({ accounts });
+  });
+
+  app.put(
+    '/api/admin/wilaya-heads/:code',
+    requireAdminSession,
+    async (req: Request, res: Response) => {
+      const code = String(req.params.code || '').trim().padStart(2, '0');
+      if (!isValidWilayaCode(code)) {
+        res.status(400).json({ error: 'رمز الولاية غير صالح (01 إلى 96).' });
+        return;
+      }
+
+      const body = req.body as Record<string, unknown>;
+      const safeMaps = sanitizeWebUrl(body.googleMapsUrl);
+      if (!safeMaps.ok) {
+        res.status(400).json({ error: 'رابط خرائط قوقل غير صالح.' });
+        return;
+      }
+      const safeSecMaps = sanitizeWebUrl(body.secondaryMapsUrl);
+      if (!safeSecMaps.ok) {
+        res.status(400).json({ error: 'رابط المقر الثاني غير صالح.' });
+        return;
+      }
+      const safeSocial = sanitizeWebUrl(body.socialUrl);
+      if (!safeSocial.ok) {
+        res.status(400).json({ error: 'رابط الحساب الرسمي غير صالح.' });
+        return;
+      }
+
+      const offices = readWilayaOffices();
+      const heads = readWilayaHeads();
+      const officeIdx = offices.findIndex((o) => o.code === code);
+      const headIdx = heads.findIndex((h) => h.wilayaCode === code);
+      if (officeIdx === -1 || headIdx === -1) {
+        res.status(404).json({ error: 'السجل الولائي غير موجود.' });
+        return;
+      }
+
+      const requestedUsername =
+        typeof body.username === 'string' && body.username.trim().length >= 3
+          ? body.username.trim().toLowerCase().slice(0, 48)
+          : heads[headIdx].username;
+      if (!/^[a-z0-9_.-]+$/.test(requestedUsername)) {
+        res.status(400).json({
+          error: 'اسم المستخدم يجب أن يحتوي على حروف إنجليزية وأرقام فقط (مثال: head16).',
+        });
+        return;
+      }
+      if (
+        heads.some(
+          (h) => h.wilayaCode !== code && h.username.toLowerCase() === requestedUsername
+        )
+      ) {
+        res.status(409).json({ error: 'اسم المستخدم مستخدم من قبل ولاية أخرى.' });
+        return;
+      }
+
+      const newPassword =
+        typeof body.password === 'string' ? body.password.trim() : '';
+      let passwordSalt = heads[headIdx].passwordSalt;
+      let passwordHash = heads[headIdx].passwordHash;
+      if (newPassword) {
+        if (newPassword.length < 6 || newPassword.length > 72) {
+          res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.' });
+          return;
+        }
+        const hashed = hashWilayaHeadPassword(newPassword);
+        passwordSalt = hashed.salt;
+        passwordHash = hashed.hash;
+      }
+
+      let lat = parseOptionalCoord(body.lat, -90, 90);
+      let lng = parseOptionalCoord(body.lng, -180, 180);
+      if ((lat === undefined || lng === undefined) && safeMaps.value) {
+        const resolved = await resolveMapsRedirectCoords(safeMaps.value);
+        if (resolved) {
+          lat = resolved.lat;
+          lng = resolved.lng;
+        }
+      }
+
+      const fullName =
+        typeof body.fullName === 'string'
+          ? body.fullName.trim().slice(0, 120)
+          : heads[headIdx].fullName;
+      const title =
+        typeof body.title === 'string' && body.title.trim()
+          ? body.title.trim().slice(0, 120)
+          : heads[headIdx].title;
+      const phone =
+        typeof body.phone === 'string' ? body.phone.trim().slice(0, 60) : heads[headIdx].phone;
+      const email =
+        typeof body.email === 'string' ? body.email.trim().slice(0, 160) : heads[headIdx].email;
+      const status: 'نشط' | 'معلق' = body.status === 'معلق' ? 'معلق' : 'نشط';
+      const now = new Date().toISOString();
+
+      heads[headIdx] = {
+        ...heads[headIdx],
+        username: requestedUsername,
+        fullName,
+        title,
+        phone,
+        email,
+        status,
+        passwordSalt,
+        passwordHash,
+        updatedAt: now,
+      };
+      writeWilayaHeads(heads);
+
+      offices[officeIdx] = {
+        ...offices[officeIdx],
+        officeName:
+          typeof body.officeName === 'string'
+            ? body.officeName.trim().slice(0, 140)
+            : offices[officeIdx].officeName,
+        representativeName: fullName,
+        headTitle: title,
+        phone,
+        accountInfo:
+          typeof body.accountInfo === 'string'
+            ? body.accountInfo.trim().slice(0, 180)
+            : offices[officeIdx].accountInfo,
+        socialUrl: safeSocial.value,
+        address:
+          typeof body.address === 'string'
+            ? body.address.trim().slice(0, 220)
+            : offices[officeIdx].address,
+        googleMapsUrl: safeMaps.value,
+        secondaryMapsUrl: safeSecMaps.value,
+        ...(lat !== undefined && lng !== undefined
+          ? { lat, lng }
+          : { lat: offices[officeIdx].lat, lng: offices[officeIdx].lng }),
+        updatedAt: now,
+      };
+      writeWilayaOffices(offices);
+
+      const officeByCode = new Map(offices.map((o) => [o.code, o]));
+      res.json({
+        account: sanitizeWilayaHeadForClient(heads[headIdx], offices[officeIdx]),
+        accounts: heads.map((h) => sanitizeWilayaHeadForClient(h, officeByCode.get(h.wilayaCode)!)),
+      });
+    }
+  );
+
+  app.post(
+    '/api/admin/wilaya-heads/bulk-provision',
+    requireAdminSession,
+    (req: Request, res: Response) => {
+      const body = req.body as { mode?: unknown };
+      const resetExisting = body.mode === 'reset_all';
+      const offices = readWilayaOffices();
+      const heads = readWilayaHeads();
+      const officeByCode = new Map(offices.map((o) => [o.code, o]));
+      const now = new Date().toISOString();
+      const generatedCredentials: Array<{
+        wilayaCode: string;
+        wilayaName: string;
+        username: string;
+        password: string;
+        fullName: string;
+      }> = [];
+
+      for (let i = 0; i < heads.length; i += 1) {
+        const current = heads[i];
+        if (!resetExisting && current.passwordHash && current.passwordSalt) {
+          continue;
+        }
+        const plainPassword = `MT-${current.wilayaCode}-${crypto
+          .randomBytes(3)
+          .toString('hex')
+          .toUpperCase()}`;
+        const { salt, hash } = hashWilayaHeadPassword(plainPassword);
+        const office = officeByCode.get(current.wilayaCode)!;
+        heads[i] = {
+          ...current,
+          status: 'نشط',
+          passwordSalt: salt,
+          passwordHash: hash,
+          updatedAt: now,
+        };
+        generatedCredentials.push({
+          wilayaCode: current.wilayaCode,
+          wilayaName: office.wilayaName,
+          username: heads[i].username,
+          password: plainPassword,
+          fullName: heads[i].fullName || office.representativeName || '',
+        });
+      }
+
+      writeWilayaHeads(heads);
+      res.json({
+        provisionedCount: generatedCredentials.length,
+        credentials: generatedCredentials,
+        accounts: heads.map((h) =>
+          sanitizeWilayaHeadForClient(h, officeByCode.get(h.wilayaCode)!)
+        ),
+      });
+    }
+  );
+
   // --- Wilaya Offices (96 Wilayas Public Read & Admin Management) ---
   app.get('/api/wilaya-offices', (_req: Request, res: Response) => {
     const offices = readWilayaOffices();
@@ -1841,7 +2559,7 @@ async function startServer() {
   app.put(
     '/api/admin/wilaya-offices/:code',
     requireAdminSession,
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const code = String(req.params.code || '').trim();
       if (!isValidWilayaCode(code)) {
         res.status(400).json({ error: 'رمز الولاية غير صالح (يجب أن يكون من 01 إلى 96).' });
@@ -1877,27 +2595,55 @@ async function startServer() {
           ? body.wilayaName.trim().slice(0, 80)
           : existing.wilayaName;
 
+      let lat = parseOptionalCoord(body.lat, -90, 90);
+      let lng = parseOptionalCoord(body.lng, -180, 180);
+      if ((lat === undefined || lng === undefined) && safeMaps.value) {
+        const resolved = await resolveMapsRedirectCoords(safeMaps.value);
+        if (resolved) {
+          lat = resolved.lat;
+          lng = resolved.lng;
+        }
+      }
+
+      const repName =
+        typeof body.representativeName === 'string'
+          ? body.representativeName.trim().slice(0, 120)
+          : '';
+      const phoneVal = typeof body.phone === 'string' ? body.phone.trim().slice(0, 60) : '';
+
       const updated: WilayaOfficeRecord = {
         code,
         wilayaName: nextWilayaName,
         officeName:
           typeof body.officeName === 'string' ? body.officeName.trim().slice(0, 140) : '',
-        representativeName:
-          typeof body.representativeName === 'string'
-            ? body.representativeName.trim().slice(0, 120)
-            : '',
-        phone: typeof body.phone === 'string' ? body.phone.trim().slice(0, 60) : '',
+        representativeName: repName,
+        headTitle: existing.headTitle,
+        phone: phoneVal,
         accountInfo:
           typeof body.accountInfo === 'string' ? body.accountInfo.trim().slice(0, 180) : '',
         socialUrl: safeSocial.value,
         address: typeof body.address === 'string' ? body.address.trim().slice(0, 220) : '',
         googleMapsUrl: safeMaps.value,
         secondaryMapsUrl: sanitizeWebUrl(body.secondaryMapsUrl).value,
+        ...(lat !== undefined && lng !== undefined ? { lat, lng } : {}),
         updatedAt: new Date().toISOString(),
       };
 
       offices[idx] = updated;
       writeWilayaOffices(offices);
+
+      const heads = readWilayaHeads();
+      const hIdx = heads.findIndex((h) => h.wilayaCode === code);
+      if (hIdx !== -1) {
+        heads[hIdx] = {
+          ...heads[hIdx],
+          fullName: repName || heads[hIdx].fullName,
+          phone: phoneVal || heads[hIdx].phone,
+          updatedAt: updated.updatedAt,
+        };
+        writeWilayaHeads(heads);
+      }
+
       res.json({ office: updated, offices });
     }
   );
@@ -1927,6 +2673,8 @@ async function startServer() {
         address: '',
         googleMapsUrl: '',
         secondaryMapsUrl: '',
+        lat: undefined,
+        lng: undefined,
         updatedAt: new Date().toISOString(),
       };
       writeWilayaOffices(offices);
@@ -1962,6 +2710,8 @@ async function startServer() {
         const safeMaps = sanitizeWebUrl(r.googleMapsUrl);
         const safeSocial = sanitizeWebUrl(r.socialUrl);
         const safeSecMaps = sanitizeWebUrl(r.secondaryMapsUrl);
+        const impLat = parseOptionalCoord(r.lat, -90, 90);
+        const impLng = parseOptionalCoord(r.lng, -180, 180);
         offices[idx] = {
           code: rawCode,
           wilayaName:
@@ -1974,6 +2724,8 @@ async function startServer() {
             typeof r.representativeName === 'string'
               ? r.representativeName.trim().slice(0, 120)
               : '',
+          headTitle:
+            typeof r.headTitle === 'string' ? r.headTitle.trim().slice(0, 120) : offices[idx].headTitle,
           phone: typeof r.phone === 'string' ? r.phone.trim().slice(0, 60) : '',
           accountInfo:
             typeof r.accountInfo === 'string' ? r.accountInfo.trim().slice(0, 180) : '',
@@ -1981,6 +2733,7 @@ async function startServer() {
           address: typeof r.address === 'string' ? r.address.trim().slice(0, 220) : '',
           googleMapsUrl: safeMaps.ok ? safeMaps.value : '',
           secondaryMapsUrl: safeSecMaps.ok ? safeSecMaps.value : '',
+          ...(impLat !== undefined && impLng !== undefined ? { lat: impLat, lng: impLng } : {}),
           updatedAt: new Date().toISOString(),
         };
         updatedCount += 1;

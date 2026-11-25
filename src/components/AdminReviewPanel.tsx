@@ -20,6 +20,7 @@ import { AdminClaimsStatusChart } from './AdminClaimsStatusChart';
 import { AdminReportsAndExcel } from './AdminReportsAndExcel';
 import { InternalRosterAdmin } from './InternalRosterAdmin';
 import { StatusLabel } from './StatusLabel';
+import { WilayaHeadsAdmin } from './WilayaHeadsAdmin';
 import { WilayaOfficesAdmin } from './WilayaOfficesAdmin';
 
 interface AdminReviewPanelProps {
@@ -48,7 +49,13 @@ export function AdminReviewPanel({
   adminUsername,
 }: AdminReviewPanelProps) {
   const [tab, setTab] = useState<
-    'claims' | 'authorizations' | 'enrollments' | 'roster' | 'wilayas' | 'reports'
+    | 'claims'
+    | 'authorizations'
+    | 'enrollments'
+    | 'roster'
+    | 'wilayas'
+    | 'wilaya_heads'
+    | 'reports'
   >('claims');
   const [internalClaims, setInternalClaims] = useState<MedicalClaim[]>([]);
   const [internalAuths, setInternalAuths] = useState<AuthorizationRequest[]>([]);
@@ -284,6 +291,17 @@ export function AdminReviewPanel({
           </button>
           <button
             type="button"
+            onClick={() => setTab('wilaya_heads')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              tab === 'wilaya_heads'
+                ? 'bg-white text-emerald-800 shadow-xs font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            رؤساء التعاضديات (96)
+          </button>
+          <button
+            type="button"
             onClick={() => setTab('reports')}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
               tab === 'reports'
@@ -306,6 +324,8 @@ export function AdminReviewPanel({
         <AdminReportsAndExcel adminToken={adminToken} />
       ) : tab === 'roster' ? (
         <InternalRosterAdmin adminToken={adminToken} />
+      ) : tab === 'wilaya_heads' ? (
+        <WilayaHeadsAdmin adminToken={adminToken} />
       ) : tab === 'wilayas' ? (
         <WilayaOfficesAdmin adminToken={adminToken} />
       ) : tab === 'enrollments' ? (

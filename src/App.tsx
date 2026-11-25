@@ -46,6 +46,7 @@ import type {
   Dependent,
   MedicalClaim,
   MemberProfile,
+  WilayaHeadAccount,
 } from './types/mutual';
 import { AdminReviewPanel } from './components/AdminReviewPanel';
 import { AuthorizationsManager } from './components/AuthorizationsManager';
@@ -64,6 +65,7 @@ import { ProfileSettings } from './components/ProfileSettings';
 import { ProvidersDirectory } from './components/ProvidersDirectory';
 import { PublicPortal } from './components/PublicPortal';
 import { SimulatorAndGuide } from './components/SimulatorAndGuide';
+import { WilayaHeadWorkspace } from './components/WilayaHeadWorkspace';
 import { WilayaOfficesDirectory } from './components/WilayaOfficesDirectory';
 
 export default function App() {
@@ -87,6 +89,8 @@ export default function App() {
   const [internalToken, setInternalToken] = useState<string>('');
   const [adminToken, setAdminToken] = useState<string>('');
   const [adminUsername, setAdminUsername] = useState<string>('');
+  const [wilayaHeadToken, setWilayaHeadToken] = useState<string>('');
+  const [wilayaHeadAccount, setWilayaHeadAccount] = useState<WilayaHeadAccount | null>(null);
   const [loginModalMode, setLoginModalMode] = useState<LoginModalMode | null>(null);
   const [postLoginSection, setPostLoginSection] = useState<WorkspaceSection>('overview');
 
@@ -149,6 +153,8 @@ export default function App() {
         setInternalToken('');
         setAdminToken('');
         setAdminUsername('');
+        setWilayaHeadToken('');
+        setWilayaHeadAccount(null);
         setMember(null);
         setMemberLoaded(false);
         setDependents([]);
@@ -270,6 +276,8 @@ export default function App() {
   const handleInternalSuccess = async (token: string, loggedMember: MemberProfile) => {
     setAdminToken('');
     setAdminUsername('');
+    setWilayaHeadToken('');
+    setWilayaHeadAccount(null);
     setInternalToken(token);
     setMember(loggedMember);
     setMemberLoaded(true);
@@ -278,8 +286,24 @@ export default function App() {
     await refreshInternalWorkspace(token);
   };
 
+  const handleWilayaHeadSuccess = (token: string, account: WilayaHeadAccount) => {
+    setInternalToken('');
+    setAdminToken('');
+    setAdminUsername('');
+    setMember(null);
+    setMemberLoaded(false);
+    setDependents([]);
+    setClaims([]);
+    setAuthorizations([]);
+    setWilayaHeadToken(token);
+    setWilayaHeadAccount(account);
+    setLoginModalMode(null);
+  };
+
   const handleAdminSuccess = (token: string, username: string) => {
     setInternalToken('');
+    setWilayaHeadToken('');
+    setWilayaHeadAccount(null);
     setMember(null);
     setMemberLoaded(false);
     setDependents([]);
@@ -298,6 +322,8 @@ export default function App() {
     setInternalToken('');
     setAdminToken('');
     setAdminUsername('');
+    setWilayaHeadToken('');
+    setWilayaHeadAccount(null);
     setMember(null);
     setMemberLoaded(false);
     setDependents([]);
@@ -358,6 +384,17 @@ export default function App() {
           جاري تهيئة بوابة التعاضدية الوطنية...
         </div>
       </div>
+    );
+  }
+
+  // Dedicated Wilaya Head Workspace
+  if (wilayaHeadToken && wilayaHeadAccount) {
+    return (
+      <WilayaHeadWorkspace
+        token={wilayaHeadToken}
+        initialAccount={wilayaHeadAccount}
+        onSignOut={handleSignOut}
+      />
     );
   }
 
@@ -541,6 +578,7 @@ export default function App() {
             onGoogleSignIn={handleGoogleSignIn}
             googleSigningIn={signingIn}
             onInternalSuccess={handleInternalSuccess}
+            onWilayaHeadSuccess={handleWilayaHeadSuccess}
             onAdminSuccess={handleAdminSuccess}
           />
         )}

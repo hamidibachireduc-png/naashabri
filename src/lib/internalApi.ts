@@ -14,11 +14,17 @@ import type {
   MemberGender,
   MemberProfile,
   PublicMemberStats,
+  PublicWilayaMapEntry,
+  WilayaHeadAccount,
+  WilayaHeadProvisionedCredential,
+  WilayaHeadWorkspaceData,
   WilayaOffice,
 } from '../types/mutual';
 import {
   isStaticSessionToken,
   staticAddAdminRosterMember,
+  staticBulkProvisionWilayaHeads,
+  staticChangeWilayaHeadPassword,
   staticCheckEnrollment,
   staticClearAdminWilayaOffice,
   staticCreateAuthorization,
@@ -33,16 +39,21 @@ import {
   staticFetchAdminRecords,
   staticFetchAdminReports,
   staticFetchAdminRoster,
+  staticFetchAdminWilayaHeads,
   staticFetchMemberWorkspace,
   staticFetchPublicMemberStats,
+  staticFetchPublicWilayaHeadsMap,
+  staticFetchWilayaHeadWorkspace,
   staticFetchWilayaOffices,
   staticImportAdminRoster,
   staticImportAdminWilayaOffices,
   staticLoginAdmin,
   staticLoginMember,
+  staticLoginWilayaHead,
   staticReviewAdminAuth,
   staticReviewAdminClaim,
   staticReviewAdminEnrollment,
+  staticSaveAdminWilayaHead,
   staticSaveAdminWilayaOffice,
   staticSubmitEnrollment,
   staticSyncExcel,
@@ -50,6 +61,7 @@ import {
   staticUpdateAdminRosterMember,
   staticUpdateClaim,
   staticUpdateMemberProfile,
+  staticUpdateWilayaHeadProfile,
   staticVerifyCardQr,
 } from './staticFallbackStore';
 
@@ -646,3 +658,118 @@ export async function verifyElectronicCardQr(
     staticVerifyCardQr(membershipNumber, sig)
   );
 }
+
+// --- Interactive Wilaya Heads Directory ---
+export async function fetchPublicWilayaHeadsMap(): Promise<{
+  entries: PublicWilayaMapEntry[];
+}> {
+  return apiJson('/api/public/wilaya-heads-map', {}, () =>
+    staticFetchPublicWilayaHeadsMap()
+  );
+}
+
+// --- Wilaya Head Accounts (Login, Scoped Workspace & Admin Management) ---
+export async function loginWilayaHeadAccount(
+  username: string,
+  password: string
+): Promise<{ token: string; account: WilayaHeadAccount }> {
+  return apiJson(
+    '/api/wilaya-head/login',
+    {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    },
+    () => staticLoginWilayaHead(username, password)
+  );
+}
+
+export async function fetchWilayaHeadWorkspace(
+  token: string
+): Promise<WilayaHeadWorkspaceData> {
+  return apiJson(
+    '/api/wilaya-head/me',
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    () => staticFetchWilayaHeadWorkspace(token)
+  );
+}
+
+export async function updateWilayaHeadProfile(
+  token: string,
+  payload: Partial<WilayaHeadAccount>
+): Promise<{ account: WilayaHeadAccount; office: WilayaOffice }> {
+  return apiJson(
+    '/api/wilaya-head/me',
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    },
+    () => staticUpdateWilayaHeadProfile(token, payload)
+  );
+}
+
+export async function changeWilayaHeadPassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean }> {
+  return apiJson(
+    '/api/wilaya-head/me/password',
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    },
+    () => staticChangeWilayaHeadPassword(token, currentPassword, newPassword)
+  );
+}
+
+export async function fetchAdminWilayaHeads(
+  adminToken: string
+): Promise<{ accounts: WilayaHeadAccount[] }> {
+  return apiJson(
+    '/api/admin/wilaya-heads',
+    {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    },
+    () => staticFetchAdminWilayaHeads(adminToken)
+  );
+}
+
+export async function saveAdminWilayaHead(
+  adminToken: string,
+  code: string,
+  payload: Partial<WilayaHeadAccount> & { password?: string }
+): Promise<{ account: WilayaHeadAccount; accounts: WilayaHeadAccount[] }> {
+  return apiJson(
+    `/api/admin/wilaya-heads/${encodeURIComponent(code)}`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify(payload),
+    },
+    () => staticSaveAdminWilayaHead(adminToken, code, payload)
+  );
+}
+
+export async function bulkProvisionAdminWilayaHeads(
+  adminToken: string,
+  mode: 'missing_only' | 'reset_all' = 'missing_only'
+): Promise<{
+  provisionedCount: number;
+  credentials: WilayaHeadProvisionedCredential[];
+  accounts: WilayaHeadAccount[];
+}> {
+  return apiJson(
+    '/api/admin/wilaya-heads/bulk-provision',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ mode }),
+    },
+    () => staticBulkProvisionWilayaHeads(adminToken, mode)
+  );
+}
+

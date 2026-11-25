@@ -10,7 +10,9 @@
     "address": "شارع الدين محمد بجانب مدرسة عائشة أم المؤمنين - ص.ب 378",
     "googleMapsUrl": "https://maps.app.goo.gl/AjoakCnfpXPyakQx5",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 27.87397,
+    "lng": -0.289529
   },
   {
     "code": "02",
@@ -23,7 +25,9 @@
     "address": "حي 38 مسكناً عدل، ص.ب رقم 36 - الشلف",
     "googleMapsUrl": "https://maps.app.goo.gl/9fhz1cZ2V84Yj4wH8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.158393,
+    "lng": 1.334592
   },
   {
     "code": "03",
@@ -36,7 +40,9 @@
     "address": "محبوبي الحاج، ص.ب 515 وسط المدينة - الأغواط",
     "googleMapsUrl": "https://maps.app.goo.gl/vRy2H7J57R89Q9cw6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 33.806189,
+    "lng": 2.884023
   },
   {
     "code": "04",
@@ -49,7 +55,9 @@
     "address": "حي الأضواء - أم البواقي",
     "googleMapsUrl": "https://maps.app.goo.gl/XhY1em12Sc4pBPHYA",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.875459,
+    "lng": 7.10827
   },
   {
     "code": "05",
@@ -75,7 +83,9 @@
     "address": "متوسطة شهداء الإخوة بزتوت، حي أدرار - بجاية",
     "googleMapsUrl": "https://maps.app.goo.gl/FfpZAtsVb584s59Q7",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.738446,
+    "lng": 5.049395
   },
   {
     "code": "07",
@@ -88,7 +98,9 @@
     "address": "نهج الإخوة جزار، ص.ب 450 - بسكرة",
     "googleMapsUrl": "https://maps.app.goo.gl/64iGDjfSTU6ZFab79",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 34.853177,
+    "lng": 5.731606
   },
   {
     "code": "08",
@@ -101,7 +113,9 @@
     "address": "حي الجيباني رقم 234، البرقة - بشار",
     "googleMapsUrl": "https://maps.app.goo.gl/K2c2LMSVWWioB7aM6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 31.610654,
+    "lng": -2.225869
   },
   {
     "code": "09",
@@ -114,7 +128,9 @@
     "address": "شارع الأخوة سالم زعبانة، ص/ب 15، مكتب بريد باب السبت",
     "googleMapsUrl": "https://maps.app.goo.gl/BkUC4UhkSNB3JvpL6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.478308,
+    "lng": 2.809381
   },
   {
     "code": "10",
@@ -127,7 +143,9 @@
     "address": "حي عيقون علي، 132 مسكناً، عمارة (G)، عدل - البويرة",
     "googleMapsUrl": "https://maps.app.goo.gl/CEVEw9BdMY4ZqW8p7",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.375384,
+    "lng": 3.893506
   },
   {
     "code": "11",
@@ -140,7 +158,9 @@
     "address": "أمال مديرية التكوين المهني سرسوف، ص.ب 265 - تمنراست",
     "googleMapsUrl": "https://maps.app.goo.gl/FCxKXhzeE6Gunwk28",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 22.794697,
+    "lng": 5.533135
   },
   {
     "code": "12",
@@ -153,7 +173,9 @@
     "address": "حي 500 مسكن عدل، العمارة L، الطابق الأول - تبسة",
     "googleMapsUrl": "https://maps.app.goo.gl/9CRH4FFpZw9aamCx8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.394136,
+    "lng": 8.111279
   },
   {
     "code": "13",
@@ -166,7 +188,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/LudMfLqy4Q3miiuV9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 34.883256,
+    "lng": -1.311177
   },
   {
     "code": "14",
@@ -179,7 +203,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/fjv18uVbZdiYDQza9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.381722,
+    "lng": 1.336194
   },
   {
     "code": "15",
@@ -192,7 +218,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/PvBdqCTJZ4HpXQ3F8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.713528,
+    "lng": 4.041964
   },
   {
     "code": "16",
@@ -205,7 +233,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/RTR3VjVAz3JTSwgT6",
     "secondaryMapsUrl": "https://maps.app.goo.gl/fHYGzeiFkSjawSLL8",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.772873,
+    "lng": 3.057485
   },
   {
     "code": "17",
@@ -218,7 +248,9 @@
     "address": "",
     "googleMapsUrl": "https://goo.gl/maps/qLtHXGtd1noNEr4n9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 34.677639,
+    "lng": 3.251472
   },
   {
     "code": "18",
@@ -231,7 +263,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/tnR3QX7dyhQxtdCe6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.816549,
+    "lng": 5.760415
   },
   {
     "code": "19",
@@ -244,7 +278,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/7NzogR8Gkn1sW4gU6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.196573,
+    "lng": 5.402468
   },
   {
     "code": "20",
@@ -257,7 +293,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/LnEFjG8qx8dqV9tP9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 34.839753,
+    "lng": 0.147206
   },
   {
     "code": "21",
@@ -270,7 +308,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/a8cYQQBL1X6Q5UfLA",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.862759,
+    "lng": 6.918536
   },
   {
     "code": "22",
@@ -283,7 +323,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/JH77rq43YjgKy4su8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.194024,
+    "lng": -0.640742
   },
   {
     "code": "23",
@@ -296,7 +338,9 @@
     "address": "",
     "googleMapsUrl": "https://maps.app.goo.gl/ZJULXPRWnXNn5Zzh6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.900643,
+    "lng": 7.757181
   },
   {
     "code": "24",
@@ -322,7 +366,9 @@
     "address": "حي جواد الطاهر رقم 09 المنظر الجميل ص ب رقم 473",
     "googleMapsUrl": "https://maps.app.goo.gl/vqWbpqn3Hti83wkd8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.355206,
+    "lng": 6.611506
   },
   {
     "code": "26",
@@ -335,7 +381,9 @@
     "address": "نهج الإخوة باشن مدرسة الشهيد طهراوي محمود (بلجباس سابقاً)",
     "googleMapsUrl": "https://maps.app.goo.gl/AWtHRoMMXHLpEi6r5",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.263651,
+    "lng": 2.756158
   },
   {
     "code": "27",
@@ -348,7 +396,9 @@
     "address": "19 نهج بن عياد بن ذهيبة مستغانم ص ب 106",
     "googleMapsUrl": "https://maps.app.goo.gl/j2ea9DSzPPJfNjYe9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.932084,
+    "lng": 0.090535
   },
   {
     "code": "28",
@@ -361,7 +411,9 @@
     "address": "حي 206 مسكن مقابل موقف الحافلات الحضرية، المسيلة",
     "googleMapsUrl": "https://maps.app.goo.gl/EBAkwH2Qaixz99mY7",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.700167,
+    "lng": 4.537502
   },
   {
     "code": "29",
@@ -374,7 +426,9 @@
     "address": "400 مسكن، المنطقة 08، معسكر",
     "googleMapsUrl": "https://maps.app.goo.gl/9A1UGCki5jL1wetM7",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.405117,
+    "lng": 0.153329
   },
   {
     "code": "30",
@@ -387,7 +441,9 @@
     "address": "شارع لحراش بشير، ورقلة",
     "googleMapsUrl": "https://maps.app.goo.gl/ot52mCoECa2GGHxs9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.947437,
+    "lng": 3.315313
   },
   {
     "code": "31",
@@ -400,7 +456,9 @@
     "address": "10 شارع عبان رمضان، مقابل نادي مولودية وهران القديم (فيلق الصيادين)، وسط وهران",
     "googleMapsUrl": "https://maps.app.goo.gl/eqCYwMtDfJiuWtqi7",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.703584,
+    "lng": -0.639301
   },
   {
     "code": "32",
@@ -413,7 +471,9 @@
     "address": "مركز الدفع لولاية البيض بالقرب من المدرسة الابتدائية النجاح وسط المدينة شارع الشهيد بالهواري برهيم",
     "googleMapsUrl": "https://maps.app.goo.gl/1hVNJNeXTeaG6Wa86?g_st=am",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 33.684219,
+    "lng": 1.017129
   },
   {
     "code": "33",
@@ -439,7 +499,9 @@
     "address": "مركز الدفع نهج هواري بومدين - برج بوعريريج",
     "googleMapsUrl": "https://maps.app.goo.gl/ZTF7SRSxbTKHugcQ9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.073461,
+    "lng": 4.751062
   },
   {
     "code": "35",
@@ -452,7 +514,9 @@
     "address": "حي 93 مسكن عدل فرانتز فانون بومرداس",
     "googleMapsUrl": "https://maps.app.goo.gl/nV315fEUPdhQG2uJA",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.764472,
+    "lng": 3.464849
   },
   {
     "code": "36",
@@ -465,7 +529,9 @@
     "address": "مركز الدفع بالطارف حي 300 مسكن تساهمي عمارة 01 مدخل 04",
     "googleMapsUrl": "https://maps.app.goo.gl/7rYTCMq5xWXyGTVt5",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.765046,
+    "lng": 8.324537
   },
   {
     "code": "37",
@@ -478,7 +544,9 @@
     "address": "حي 32 قصابي تندوف",
     "googleMapsUrl": "https://maps.app.goo.gl/23o9mqRdweGnJtGA9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 27.677069,
+    "lng": -8.128375
   },
   {
     "code": "38",
@@ -491,7 +559,9 @@
     "address": "مديرية التربية القديمة شارع 1 نوفمبر تيسمسيلت",
     "googleMapsUrl": "https://maps.app.goo.gl/iJ2ZeesjdTLB8ynQ9",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.598062,
+    "lng": 1.809687
   },
   {
     "code": "39",
@@ -504,7 +574,9 @@
     "address": "حي 17 أكتوبر بجانب ثانوية بوشوشة المختلطة",
     "googleMapsUrl": "https://maps.app.goo.gl/ias8XB6V8VpzKC3p8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 33.364936,
+    "lng": 6.85028
   },
   {
     "code": "40",
@@ -543,7 +615,9 @@
     "address": "حي 1700 مسكن عدل، القطعة 02، العمارة 16، الحديقة، تيبازة",
     "googleMapsUrl": "https://maps.app.goo.gl/MqmphLV89BDFsGGp8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.587162,
+    "lng": 2.465891
   },
   {
     "code": "43",
@@ -556,7 +630,9 @@
     "address": "حي 500 مسكن، العمارة رقم 74، ميلة",
     "googleMapsUrl": "https://maps.app.goo.gl/gwWDPUpuiYPZpUDo8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.456809,
+    "lng": 6.260383
   },
   {
     "code": "44",
@@ -569,7 +645,9 @@
     "address": "شارع قلواز محمد رقم 12 عين الدفلى",
     "googleMapsUrl": "https://maps.app.goo.gl/tVZqucTbXkaXuamAA",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 36.262514,
+    "lng": 1.96966
   },
   {
     "code": "45",
@@ -582,7 +660,9 @@
     "address": "شارع جبار قادة حي الإداري وسط المدينة العين الصفراء، النعامة",
     "googleMapsUrl": "https://maps.app.goo.gl/skSo2tvh38ncMNFW6",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 32.752787,
+    "lng": -0.581797
   },
   {
     "code": "46",
@@ -595,7 +675,9 @@
     "address": "مدرسة مولود فرعون، عين تموشنت، شارع أول نوفمبر",
     "googleMapsUrl": "https://maps.app.goo.gl/gpTK7c7nhGbRPU5v8",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 35.294934,
+    "lng": -1.139353
   },
   {
     "code": "47",
@@ -608,7 +690,9 @@
     "address": "شارع أول ماي - المركز متعدد الخدمات (وسط المدينة) وبالقرب من CNAS ص.ب رقم 453",
     "googleMapsUrl": "https://maps.app.goo.gl/rLdj2PKJDPnPxyXW7",
     "secondaryMapsUrl": "",
-    "updatedAt": "2026-11-22T12:30:14.344Z"
+    "updatedAt": "2026-11-22T12:30:14.344Z",
+    "lat": 32.487389,
+    "lng": 3.67925
   },
   {
     "code": "48",

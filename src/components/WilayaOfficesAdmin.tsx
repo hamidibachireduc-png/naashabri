@@ -16,7 +16,8 @@ import {
   importAdminWilayaOffices,
   saveAdminWilayaOffice,
 } from '../lib/internalApi';
-import type { WilayaOffice } from '../types/mutual';
+import type { PublicWilayaMapEntry, WilayaOffice } from '../types/mutual';
+import { WilayaInteractiveMap } from './WilayaInteractiveMap';
 
 interface WilayaOfficesAdminProps {
   adminToken: string;
@@ -51,6 +52,8 @@ export function WilayaOfficesAdmin({ adminToken }: WilayaOfficesAdminProps) {
   const [address, setAddress] = useState('');
   const [googleMapsUrl, setGoogleMapsUrl] = useState('');
   const [secondaryMapsUrl, setSecondaryMapsUrl] = useState('');
+  const [latStr, setLatStr] = useState('');
+  const [lngStr, setLngStr] = useState('');
   const [saving, setSaving] = useState(false);
 
   const loadOffices = useCallback(async () => {
@@ -108,6 +111,8 @@ export function WilayaOfficesAdmin({ adminToken }: WilayaOfficesAdminProps) {
     setAddress(office.address);
     setGoogleMapsUrl(office.googleMapsUrl);
     setSecondaryMapsUrl(office.secondaryMapsUrl || '');
+    setLatStr(typeof office.lat === 'number' ? String(office.lat) : '');
+    setLngStr(typeof office.lng === 'number' ? String(office.lng) : '');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -116,6 +121,8 @@ export function WilayaOfficesAdmin({ adminToken }: WilayaOfficesAdminProps) {
     setErrorMsg('');
     setSaving(true);
     try {
+      const parsedLat = latStr.trim() ? Number(latStr.trim()) : undefined;
+      const parsedLng = lngStr.trim() ? Number(lngStr.trim()) : undefined;
       const res = await saveAdminWilayaOffice(adminToken, editingOffice.code, {
         wilayaName: wilayaName.trim(),
         officeName: officeName.trim(),
@@ -126,6 +133,8 @@ export function WilayaOfficesAdmin({ adminToken }: WilayaOfficesAdminProps) {
         address: address.trim(),
         googleMapsUrl: googleMapsUrl.trim(),
         secondaryMapsUrl: secondaryMapsUrl.trim(),
+        lat: Number.isFinite(parsedLat) ? parsedLat : undefined,
+        lng: Number.isFinite(parsedLng) ? parsedLng : undefined,
       });
       setOffices(res.offices);
       setNoticeMsg(`تم حفظ بيانات المقر الولائي (${editingOffice.code} - ${wilayaName.trim()}) بنجاح.`);
@@ -558,6 +567,67 @@ export function WilayaOfficesAdmin({ adminToken }: WilayaOfficesAdminProps) {
                   onChange={(e) => setSecondaryMapsUrl(e.target.value)}
                   placeholder="https://maps.app.goo.gl/..."
                   className="w-full px-3 py-2 text-sm font-mono-tabular bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-700">
+                    إحداثيات المقر على الخريطة التفاعلية
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={latStr}
+                      onChange={(e) => setLatStr(e.target.value)}
+                      placeholder="Lat"
+                      className="w-24 px-2 py-1 text-xs font-mono-tabular bg-white border border-slate-300 rounded"
+                    />
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={lngStr}
+                      onChange={(e) => setLngStr(e.target.value)}
+                      placeholder="Lng"
+                      className="w-24 px-2 py-1 text-xs font-mono-tabular bg-white border border-slate-300 rounded"
+                    />
+                  </div>
+                </div>
+                <WilayaInteractiveMap
+                  entries={
+                    [
+                      {
+                        code: editingOffice.code,
+                        wilayaName,
+                        officeName,
+                        representativeName,
+                        headTitle: editingOffice.headTitle || '',
+                        headUsername: `head${editingOffice.code}`,
+                        headStatus: 'نشط',
+                        hasActiveAccount: false,
+                        phone,
+                        email: '',
+                        accountInfo,
+                        socialUrl,
+                        address,
+                        googleMapsUrl,
+                        secondaryMapsUrl,
+                        lat: latStr ? Number(latStr) : undefined,
+                        lng: lngStr ? Number(lngStr) : undefined,
+                        updatedAt: editingOffice.updatedAt,
+                      },
+                    ] as PublicWilayaMapEntry[]
+                  }
+                  pickerMode={true}
+                  pickedLat={latStr ? Number(latStr) : undefined}
+                  pickedLng={lngStr ? Number(lngStr) : undefined}
+                  onPickCoords={(lat, lng, formattedAddr) => {
+                    setLatStr(String(lat));
+                    setLngStr(String(lng));
+                    if (formattedAddr && !address.trim()) setAddress(formattedAddr);
+                  }}
+                  heightClassName="h-[220px]"
                 />
               </div>
 
